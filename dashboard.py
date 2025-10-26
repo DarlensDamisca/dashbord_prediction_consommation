@@ -25,7 +25,7 @@ st.markdown("""
         margin-bottom: 2rem;
     }
     .prediction-card {
-        background-color: #f0f2f6;
+        background-color: grey;
         padding: 20px;
         border-radius: 10px;
         border-left: 5px solid #1f77b4;
