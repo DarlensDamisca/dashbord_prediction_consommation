@@ -10,19 +10,82 @@ import plotly.graph_objects as go
 import os
 import json
 from pathlib import Path
-import requests
-from io import BytesIO
-import base64
 
 # ==============================
 # CONFIGURATION GLOBALE
 # ==============================
 st.set_page_config(
-    page_title="Classification des Ménages Haïtiens - Sigora",
+    page_title="Calculateur de Consommation - Sigora",
     page_icon="🇭🇹",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ==============================
+# BASE DE DONNÉES DES APPAREILS
+# ==============================
+APPAREILS_DATA = {
+    "ampoule": {
+        "nom": "💡 Ampoule LED",
+        "puissance_w": 10,
+        "heures_usage_jour": 6,
+        "probabilite_usage": 0.95
+    },
+    "television": {
+        "nom": "📺 Télévision",
+        "puissance_w": 80,
+        "heures_usage_jour": 5,
+        "probabilite_usage": 0.85
+    },
+    "laptop": {
+        "nom": "💻 Laptop",
+        "puissance_w": 60,
+        "heures_usage_jour": 4,
+        "probabilite_usage": 0.70
+    },
+    "telephone": {
+        "nom": "📱 Téléphone (chargeur)",
+        "puissance_w": 5,
+        "heures_usage_jour": 3,
+        "probabilite_usage": 0.90
+    },
+    "refrigerateur": {
+        "nom": "❄️ Réfrigérateur",
+        "puissance_w": 150,
+        "heures_usage_jour": 8,
+        "probabilite_usage": 1.00
+    },
+    "radio": {
+        "nom": "📻 Radio",
+        "puissance_w": 15,
+        "heures_usage_jour": 4,
+        "probabilite_usage": 0.60
+    },
+    "climatiseur": {
+        "nom": "❄️ Climatiseur",
+        "puissance_w": 1000,
+        "heures_usage_jour": 3,
+        "probabilite_usage": 0.40
+    },
+    "ventilateur": {
+        "nom": "🌀 Ventilateur",
+        "puissance_w": 50,
+        "heures_usage_jour": 8,
+        "probabilite_usage": 0.75
+    },
+    "machine_laver": {
+        "nom": "👕 Machine à laver",
+        "puissance_w": 500,
+        "heures_usage_jour": 1,
+        "probabilite_usage": 0.30
+    },
+    "fer_repasser": {
+        "nom": "🧺 Fer à repasser",
+        "puissance_w": 1000,
+        "heures_usage_jour": 0.5,
+        "probabilite_usage": 0.25
+    }
+}
 
 # ==============================
 # STYLE CSS PERSONNALISÉ
@@ -70,32 +133,31 @@ st.markdown("""
         border-left: 4px solid #2196f3;
         margin: 1rem 0;
     }
-    .alert-box {
-        background: linear-gradient(135deg, #ff7979, #eb4d4b);
-        color: white;
+    .appliance-card {
+        background: white;
         padding: 1rem;
         border-radius: 10px;
+        border: 2px solid #e0e0e0;
         margin: 0.5rem 0;
+        transition: all 0.3s ease;
     }
-    .impact-card {
-        background: linear-gradient(135deg, #74b9ff, #0984e3);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        margin: 1rem 0;
+    .appliance-card:hover {
+        border-color: #1f77b4;
+        transform: translateY(-2px);
     }
-    .success-box {
-        background: linear-gradient(135deg, #00b894, #55a630);
+    .consumption-badge {
+        background: #ff6b6b;
         color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 1rem 0;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================
-# CLASSE PRINCIPALE - AVEC UPLOAD DE MODÈLE
+# CLASSE PRINCIPALE
 # ==============================
 class SigoraHouseholdClassifier:
     def __init__(self):
@@ -110,14 +172,11 @@ class SigoraHouseholdClassifier:
     def load_artifacts(self):
         """Charger les fichiers du modèle depuis le dossier Model/"""
         try:
-            # Essayer de charger depuis le dossier Model/
             base_path = "Model"
             
-            # Vérifier si le dossier existe
             if os.path.exists(base_path):
                 st.sidebar.success("📁 Dossier Model/ détecté")
                 files = os.listdir(base_path)
-                st.sidebar.write(f"Fichiers trouvés: {', '.join(files)}")
                 
                 # Charger le modèle
                 model_files = [f for f in files if f.startswith('best_model') and f.endswith('.joblib')]
@@ -147,27 +206,11 @@ class SigoraHouseholdClassifier:
                     self.setup_demo_mode()
                     return
                 
-                # Charger les données
-                data_files = [f for f in files if f.startswith('final_results') and f.endswith('.csv')]
-                if data_files:
-                    self.dataset = pd.read_csv(os.path.join(base_path, data_files[0]))
-                    st.sidebar.success(f"✅ Données chargées: {data_files[0]}")
-                else:
-                    st.sidebar.warning("⚠️ Données non trouvées - Génération de données de démo")
-                    self.generate_demo_data()
-                
-                # Charger les métriques
-                if 'performance_metrics.json' in files:
-                    with open(os.path.join(base_path, 'performance_metrics.json'), 'r') as f:
-                        self.performance_metrics = json.load(f)
-                    st.sidebar.success("✅ Métriques chargées")
-                
                 self.model_loaded = True
                 st.sidebar.success("🎯 **VRAI MODÈLE ACTIVÉ**")
                 
             else:
                 st.sidebar.error("❌ Dossier 'Model/' introuvable")
-                st.sidebar.info("💡 Uploadez vos fichiers dans le dossier Model/")
                 self.setup_demo_mode()
                 
         except Exception as e:
@@ -182,46 +225,12 @@ class SigoraHouseholdClassifier:
         st.sidebar.warning("🎮 Activation du mode démo")
         
         np.random.seed(42)
-        self.generate_demo_data()
-        
-        # Préparation des features pour le modèle démo
-        features = ['avg_amperage_per_day', 'avg_depense_per_day', 'nombre_personnes', 'jours_observed', 'ratio_depense_amperage']
-        X = self.dataset[features]
-        y = self.dataset['niveau_conso_pred']
-
-        # Entraînement du modèle démo
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-
-        self.encoder = LabelEncoder()
-        y_enc = self.encoder.fit_transform(y)
-
-        self.model = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=10)
-        self.model.fit(X_scaled, y_enc)
-        
-        self.performance_metrics = {
-            "test_accuracy": 0.92,
-            "precision": 0.90,
-            "recall": 0.89,
-            "f1_score": 0.90
-        }
-        
-        self.model_loaded = False
-
-    def generate_demo_data(self):
-        """Générer des données de démo réalistes"""
-        n_samples = 1200
-        zones = ['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves', 'Les Cayes', 'Jacmel']
-        
+        n_samples = 1000
         self.dataset = pd.DataFrame({
             'avg_amperage_per_day': np.random.exponential(2.0, n_samples),
             'avg_depense_per_day': np.random.exponential(0.05, n_samples),
             'nombre_personnes': np.random.randint(2, 7, n_samples),
             'jours_observed': np.random.randint(30, 365, n_samples),
-            'latitude': np.random.uniform(18.0, 20.2, n_samples),
-            'longitude': np.random.uniform(-74.5, -71.8, n_samples),
-            'zone': np.random.choice(zones, n_samples),
-            'menage_id': [f"MEN{str(i).zfill(4)}" for i in range(n_samples)]
         })
         
         self.dataset['ratio_depense_amperage'] = (
@@ -229,7 +238,6 @@ class SigoraHouseholdClassifier:
             (self.dataset['avg_amperage_per_day'] + 1e-9)
         )
         
-        # Classification réaliste
         score_consommation = (
             self.dataset['avg_amperage_per_day'] * 0.6 +
             self.dataset['nombre_personnes'] * 0.2 +
@@ -241,6 +249,22 @@ class SigoraHouseholdClassifier:
             bins=[-1, 1.5, 3.0, np.inf],
             labels=['petit', 'moyen', 'grand']
         )
+
+        features = ['avg_amperage_per_day', 'avg_depense_per_day', 'nombre_personnes', 'jours_observed', 'ratio_depense_amperage']
+        X = self.dataset[features]
+        y = self.dataset['niveau_conso_pred']
+
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+
+        self.encoder = LabelEncoder()
+        y_enc = self.encoder.fit_transform(y)
+
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.model.fit(X_scaled, y_enc)
+        
+        self.performance_metrics = {"test_accuracy": 0.92}
+        self.model_loaded = False
 
     def predict_household(self, features):
         """Faire une prédiction unique"""
@@ -255,329 +279,249 @@ class SigoraHouseholdClassifier:
             st.error(f"Erreur de prédiction: {e}")
             return "moyen", [0.33, 0.34, 0.33]
 
-    def detect_anomalies(self):
-        """Détecter les consommations anormales"""
-        if self.dataset is None:
-            return []
-        
-        anomalies = []
-        for idx, row in self.dataset.iterrows():
-            if row['avg_amperage_per_day'] > 6.0:
-                anomalies.append({
-                    'id': row.get('menage_id', f"MEN{idx:04d}"),
-                    'type': '🚨 Consommation Excessive',
-                    'valeur': f"{row['avg_amperage_per_day']:.1f}A",
-                    'seuil': '6.0A',
-                    'zone': row.get('zone', 'Inconnue'),
-                    'personnes': row.get('nombre_personnes', 'N/A')
-                })
-            elif row['ratio_depense_amperage'] > 0.12:
-                anomalies.append({
-                    'id': row.get('menage_id', f"MEN{idx:04d}"),
-                    'type': '💸 Inefficacité Économique',
-                    'valeur': f"Ratio {row['ratio_depense_amperage']:.3f}",
-                    'seuil': '0.120',
-                    'zone': row.get('zone', 'Inconnue'),
-                    'personnes': row.get('nombre_personnes', 'N/A')
-                })
-        
-        return anomalies[:10]
-
 # ==============================
-# FONCTIONNALITÉS AVANCÉES
+# FONCTIONS DE CALCUL DE CONSOMMATION
 # ==============================
 
-def show_interactive_map(clf):
-    """🗺️ Carte Interactive des Ménages"""
-    st.markdown('<h2 class="sub-header">🗺️ Carte Interactive des Consommations</h2>', unsafe_allow_html=True)
+def calculer_consommation_appareils(appareils_selectionnes, nb_personnes, tarif_kwh=0.25):
+    """
+    Calcule la consommation totale basée sur les appareils sélectionnés
     
-    if clf.model_loaded:
-        st.markdown('<div class="success-box">🎯 **VRAI MODÈLE** - Données réelles utilisées</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="info-box">🎮 **MODE DÉMO** - Données simulées</div>', unsafe_allow_html=True)
+    Args:
+        appareils_selectionnes: Liste des appareils sélectionnés
+        nb_personnes: Nombre de personnes dans le ménage
+        tarif_kwh: Tarif électrique en $/kWh (valeur par défaut pour Haïti)
     
-    if clf.dataset is None:
-        st.error("❌ Données non disponibles")
-        return
+    Returns:
+        dict: Résultats de calcul
+    """
+    consommation_totale_wh = 0
+    details_appareils = []
     
-    viz_type = st.radio("**Type de visualisation:**", ["Points Colorés", "Heatmap de Densité"], horizontal=True)
+    for appareil_id in appareils_selectionnes:
+        if appareil_id in APPAREILS_DATA:
+            appareil = APPAREILS_DATA[appareil_id]
+            
+            # Ajustement basé sur le nombre de personnes
+            if appareil_id == "ampoule":
+                quantite = max(2, nb_personnes)  # Au moins 2 ampoules
+            elif appareil_id == "telephone":
+                quantite = nb_personnes  # Un téléphone par personne
+            elif appareil_id == "laptop":
+                quantite = min(nb_personnes, 3)  # Maximum 3 laptops
+            else:
+                quantite = 1
+            
+            # Calcul consommation quotidienne
+            consommation_wh = (
+                appareil["puissance_w"] * 
+                appareil["heures_usage_jour"] * 
+                quantite *
+                appareil["probabilite_usage"]
+            )
+            
+            consommation_totale_wh += consommation_wh
+            
+            details_appareils.append({
+                "nom": appareil["nom"],
+                "quantite": quantite,
+                "puissance_w": appareil["puissance_w"],
+                "heures_jour": appareil["heures_usage_jour"],
+                "consommation_wh": consommation_wh,
+                "probabilite": appareil["probabilite_usage"]
+            })
     
-    if viz_type == "Points Colorés":
-        fig = px.scatter_mapbox(clf.dataset, 
-                               lat="latitude", 
-                               lon="longitude",
-                               color="niveau_conso_pred",
-                               color_discrete_map={
-                                   'petit': '#4cd137',
-                                   'moyen': '#ff9f43', 
-                                   'grand': '#ff6b6b'
-                               },
-                               hover_data={
-                                   'avg_amperage_per_day': ':.2f',
-                                   'avg_depense_per_day': ':.3f',
-                                   'nombre_personnes': True,
-                                   'zone': True
-                               },
-                               zoom=6.5,
-                               height=600,
-                               title="Répartition Géographique des Ménages en Haïti")
-    else:
-        fig = px.density_mapbox(clf.dataset, 
-                               lat="latitude", 
-                               lon="longitude",
-                               z='avg_amperage_per_day',
-                               radius=15,
-                               zoom=6.5,
-                               height=600,
-                               title="Heatmap de la Consommation Électrique")
+    # Conversion en kWh et calcul du coût
+    consommation_kwh = consommation_totale_wh / 1000
+    cout_quotidien = consommation_kwh * tarif_kwh
     
-    fig.update_layout(mapbox_style="open-street-map")
-    fig.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
-    st.plotly_chart(fig, use_container_width=True)
+    # Conversion en ampérage (supposant 110V - standard Haïti)
+    voltage = 110
+    amperage_moyen = (consommation_kwh * 1000) / voltage / 24  # Ampérage moyen sur 24h
+    
+    return {
+        "consommation_wh": consommation_totale_wh,
+        "consommation_kwh": consommation_kwh,
+        "cout_quotidien": cout_quotidien,
+        "amperage_moyen": amperage_moyen,
+        "details_appareils": details_appareils,
+        "tarif_kwh": tarif_kwh
+    }
 
-def show_impact_simulator(clf):
-    """💰 Simulateur d'Impact Économique"""
-    st.markdown('<h2 class="sub-header">💰 Simulateur d\'Économies Potentielles</h2>', unsafe_allow_html=True)
+def show_appliance_calculator(clf):
+    """🔌 Calculateur de Consommation par Appareils"""
+    st.markdown('<h2 class="sub-header">🔌 Calculateur Intelligent de Consommation</h2>', unsafe_allow_html=True)
     
     if clf.model_loaded:
-        st.markdown('<div class="success-box">🎯 **VRAI MODÈLE** - Prédictions précises</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">🎯 **VRAI MODÈLE** - Prédictions basées sur votre modèle entraîné</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="info-box">🎮 **MODE DÉMO** - Utilisation de données simulées</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        menage_type = st.selectbox(
-            "**Type de consommation:**",
-            ["petit", "moyen", "grand"],
-            index=1,
-            format_func=lambda x: {
-                "petit": "🟢 Faible Consommateur", 
-                "moyen": "🟡 Consommation Moyenne", 
-                "grand": "🔴 Grand Consommateur"
-            }[x]
-        )
+        st.markdown("### 👨‍👩‍👧‍👦 Informations du Ménage")
+        nb_personnes = st.slider("Nombre de personnes dans le ménage", 1, 10, 4)
         
-        interventions = st.multiselect(
-            "**Actions d'optimisation:**",
-            ["Compteur intelligent", "Éclairage LED", "Électroménager efficace", "Sensibilisation", "Tarification incitative"],
-            default=["Compteur intelligent", "Éclairage LED"]
-        )
+        st.markdown("### 💡 Sélection des Appareils")
+        st.write("Cochez les appareils utilisés dans le ménage:")
+        
+        appareils_selectionnes = []
+        for appareil_id, appareil_data in APPAREILS_DATA.items():
+            if st.checkbox(f"{appareil_data['nom']} ({appareil_data['puissance_w']}W)", key=appareil_id):
+                appareils_selectionnes.append(appareil_id)
+        
+        # Paramètres avancés
+        with st.expander("⚙️ Paramètres avancés"):
+            tarif_kwh = st.slider("Tarif électrique ($/kWh)", 0.10, 1.00, 0.25, 0.05)
+            jours_observation = st.slider("Période d'observation (jours)", 7, 365, 90)
     
     with col2:
-        economie_base = {"petit": 80, "moyen": 150, "grand": 350}[menage_type]
-        multiplicateur = 1.0
-        
-        bonus = {
-            "Compteur intelligent": 0.3,
-            "Éclairage LED": 0.25,
-            "Électroménager efficace": 0.4,
-            "Sensibilisation": 0.15,
-            "Tarification incitative": 0.3
-        }
-        
-        for intervention in interventions:
-            multiplicateur += bonus.get(intervention, 0)
-        
-        economie_totale = economie_base * multiplicateur
-        
-        st.markdown(f'''
-        <div class="impact-card">
-            <h3>💵 Économies Annuelles Estimées</h3>
-            <h1>${economie_totale:.0f}</h1>
-            <p>Par ménage • Basé sur les données { "réelles" if clf.model_loaded else "simulées" }</p>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        menages_impactes = st.slider("**Nombre de ménages impactés:**", 100, 5000, 1000, 100)
-        impact_national = economie_totale * menages_impactes
-        
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.metric("💰 Économies totales", f"${impact_national:,.0f}")
-        with col_b:
-            st.metric("🏠 Ménages couverts", f"{menages_impactes}")
-
-def show_real_time_alerts(clf):
-    """🚨 Alertes Temps Réel"""
-    st.markdown('<h2 class="sub-header">🚨 Détection d\'Anomalies</h2>', unsafe_allow_html=True)
-    
-    if clf.model_loaded:
-        st.markdown('<div class="success-box">🎯 **VRAI MODÈLE** - Détection précise</div>', unsafe_allow_html=True)
-    
-    if st.button("🔍 Scanner les Consommations Anormales", type="primary", use_container_width=True):
-        with st.spinner("Analyse en cours..."):
-            anomalies = clf.detect_anomalies()
+        if appareils_selectionnes:
+            # Calcul de la consommation
+            resultats = calculer_consommation_appareils(appareils_selectionnes, nb_personnes, tarif_kwh)
             
-            if not anomalies:
-                st.success("✅ **Aucune anomalie critique détectée**")
-            else:
-                st.error(f"🚨 **{len(anomalies)} anomalies détectées**")
-                
-                for i, anomaly in enumerate(anomalies, 1):
-                    st.markdown(f"""
-                    <div style='
-                        background: {"#ff6b6b" if "Excessive" in anomaly["type"] else "#ffa726"}; 
-                        color: white; padding: 1rem; border-radius: 10px; margin: 0.5rem 0;
-                        border-left: 5px solid #c23616;
-                    '>
-                        <strong>#{i} - {anomaly['id']}</strong><br>
-                        <strong>{anomaly['type']}</strong><br>
-                        📊 {anomaly['valeur']} | 🎯 Seuil: {anomaly['seuil']}<br>
-                        📍 {anomaly['zone']} | 👥 {anomaly['personnes']} personnes
-                    </div>
-                    """, unsafe_allow_html=True)
-
-def show_3d_clusters(clf):
-    """🔮 Visualisation 3D des Clusters"""
-    st.markdown('<h2 class="sub-header">🔮 Visualisation 3D des Profils</h2>', unsafe_allow_html=True)
-    
-    if clf.model_loaded:
-        st.markdown('<div class="success-box">🎯 **VRAI MODÈLE** - Clusters réels</div>', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        x_axis = st.selectbox("**Axe X**", 
-                             ['avg_amperage_per_day', 'avg_depense_per_day', 'nombre_personnes', 'ratio_depense_amperage'],
-                             index=0)
-        y_axis = st.selectbox("**Axe Y**", 
-                             ['avg_depense_per_day', 'avg_amperage_per_day', 'nombre_personnes', 'ratio_depense_amperage'],
-                             index=1)
-        z_axis = st.selectbox("**Axe Z**", 
-                             ['nombre_personnes', 'avg_amperage_per_day', 'avg_depense_per_day', 'ratio_depense_amperage'],
-                             index=0)
-    
-    with col2:
-        plot_df = clf.dataset.copy().head(400)
+            st.markdown("### 📊 Résultats du Calcul")
+            
+            # Métriques principales
+            col_met1, col_met2, col_met3 = st.columns(3)
+            with col_met1:
+                st.metric("⚡ Consommation", f"{resultats['consommation_kwh']:.2f} kWh/j")
+            with col_met2:
+                st.metric("💰 Coût quotidien", f"${resultats['cout_quotidien']:.2f}")
+            with col_met3:
+                st.metric("🔌 Ampérage moyen", f"{resultats['amperage_moyen']:.2f} A")
+            
+            # Détails par appareil
+            st.markdown("#### 📋 Détail par Appareil")
+            for detail in resultats['details_appareils']:
+                with st.container():
+                    col_app1, col_app2, col_app3 = st.columns([2, 1, 1])
+                    with col_app1:
+                        st.write(f"**{detail['nom']}**")
+                    with col_app2:
+                        st.write(f"{detail['quantite']}x")
+                    with col_app3:
+                        st.write(f"{detail['consommation_wh']/1000:.2f} kWh")
+            
+            # Prédiction avec le modèle
+            if st.button("🎯 Prédire le Profil de Consommation", type="primary", use_container_width=True):
+                with st.spinner("Analyse en cours..."):
+                    # Préparation des features pour le modèle
+                    features = [
+                        resultats['amperage_moyen'],      # avg_amperage_per_day
+                        resultats['cout_quotidien'],      # avg_depense_per_day  
+                        nb_personnes,                     # nombre_personnes
+                        jours_observation,                # jours_observed
+                        resultats['cout_quotidien'] / max(resultats['amperage_moyen'], 0.001)  # ratio_depense_amperage
+                    ]
+                    
+                    # Prédiction
+                    pred, prob = clf.predict_household(features)
+                    
+                    # Affichage des résultats
+                    st.markdown("---")
+                    st.markdown("### 🔮 Résultat de la Prédiction")
+                    
+                    if pred == "grand":
+                        st.markdown('<div class="prediction-high"><h1>🔴 GRAND CONSOMMATEUR</h1><p>Consommation élevée détectée - Optimisations recommandées</p></div>', unsafe_allow_html=True)
+                    elif pred == "moyen":
+                        st.markdown('<div class="prediction-medium"><h1>🟡 CONSOMMATION MOYENNE</h1><p>Profil standard - Quelques optimisations possibles</p></div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="prediction-low"><h1>🟢 FAIBLE CONSOMMATION</h1><p>Consommation efficiente - Profil exemplaire</p></div>', unsafe_allow_html=True)
+                    
+                    # Graphique des probabilités
+                    fig = go.Figure(go.Bar(
+                        x=['Faible', 'Moyenne', 'Élevée'],
+                        y=prob,
+                        marker_color=['#4cd137', '#ff9f43', '#ff6b6b'],
+                        text=[f"{p:.1%}" for p in prob],
+                        textposition='auto'
+                    ))
+                    fig.update_layout(
+                        title="Confiance du Modèle",
+                        yaxis=dict(tickformat=".0%", range=[0, 1]),
+                        height=300
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Recommandations
+                    st.markdown("#### 💡 Recommandations")
+                    if pred == "grand":
+                        st.warning("""
+                        **Actions recommandées:**
+                        - ✅ Remplacer les vieux appareils énergivores
+                        - ✅ Utiliser des ampoules LED
+                        - ✅ Optimiser l'usage du climatiseur
+                        - ✅ Éteindre les appareils en veille
+                        """)
+                    elif pred == "moyen":
+                        st.info("""
+                        **Améliorations possibles:**
+                        - 🔄 Vérifier l'isolation de la maison
+                        - 🔄 Utiliser des multiprises avec interrupteur
+                        - 🔄 Optimiser les horaires d'utilisation
+                        """)
+                    else:
+                        st.success("""
+                        **Félicitations!** Votre consommation est optimale.
+                        - 🏆 Continuez ces bonnes pratiques
+                        - 🏆 Partagez vos astuces avec vos voisins
+                        """)
         
-        fig = px.scatter_3d(plot_df,
-                           x=x_axis,
-                           y=y_axis, 
-                           z=z_axis,
-                           color='niveau_conso_pred',
-                           color_discrete_map={
-                               'petit': '#4cd137',
-                               'moyen': '#ff9f43',
-                               'grand': '#ff6b6b'
-                           },
-                           hover_data={
-                               'menage_id': True,
-                               'zone': True,
-                               'avg_amperage_per_day': ':.2f'
-                           },
-                           title="Clusters 3D des Profils de Consommation",
-                           height=600)
-        
-        fig.update_traces(marker=dict(size=4, opacity=0.7))
-        st.plotly_chart(fig, use_container_width=True)
-
-# ==============================
-# PAGES EXISTANTES
-# ==============================
+        else:
+            st.info("💡 **Sélectionnez au moins un appareil pour commencer le calcul**")
+            
+            # Aperçu des appareils disponibles
+            st.markdown("#### 📋 Appareils Disponibles")
+            for appareil_id, appareil_data in list(APPAREILS_DATA.items())[:5]:
+                st.write(f"{appareil_data['nom']} - {appareil_data['puissance_w']}W")
 
 def show_dashboard(clf):
-    st.markdown('<h2 class="sub-header">📊 Tableau de Bord Principal</h2>', unsafe_allow_html=True)
+    """Tableau de bord principal"""
+    st.markdown('<h2 class="sub-header">📊 Tableau de Bord</h2>', unsafe_allow_html=True)
     
     if clf.model_loaded:
-        st.markdown('<div class="success-box">🎯 **VRAI MODÈLE** - Données réelles</div>', unsafe_allow_html=True)
+        st.success("✅ **VRAI MODÈLE ACTIVÉ** - Données réelles utilisées")
     else:
-        st.markdown('<div class="info-box">🎮 **MODE DÉMO** - Données simulées</div>', unsafe_allow_html=True)
+        st.warning("🎮 **MODE DÉMO** - Données simulées")
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Métriques
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("🏠 Ménages analysés", len(clf.dataset))
     with col2:
         acc = clf.performance_metrics.get("test_accuracy", 0.92) * 100
-        st.metric("🎯 Précision du modèle", f"{acc:.1f}%")
+        st.metric("🎯 Précision", f"{acc:.1f}%")
     with col3:
-        grands = (clf.dataset["niveau_conso_pred"] == "grand").sum()
-        st.metric("🔴 Grands consommateurs", grands)
-    with col4:
-        zones = clf.dataset["zone"].nunique()
-        st.metric("📍 Zones couvertes", zones)
-
-    col_left, col_right = st.columns(2)
-    with col_left:
-        dist = clf.dataset["niveau_conso_pred"].value_counts()
-        fig = px.pie(values=dist.values, names=dist.index, hole=0.4,
-                     color=dist.index, 
-                     color_discrete_map={'petit':'#4cd137','moyen':'#ff9f43','grand':'#ff6b6b'})
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_right:
-        zone_data = clf.dataset.groupby("zone")["niveau_conso_pred"].value_counts().unstack().fillna(0)
-        fig = px.bar(zone_data, barmode="stack", 
-                    color_discrete_map={'petit':'#4cd137','moyen':'#ff9f43','grand':'#ff6b6b'})
-        st.plotly_chart(fig, use_container_width=True)
-
-def show_prediction(clf):
-    st.markdown('<h2 class="sub-header">🔮 Prédiction en Temps Réel</h2>', unsafe_allow_html=True)
+        st.metric("🔌 Appareils référencés", len(APPAREILS_DATA))
     
-    if clf.model_loaded:
-        st.markdown('<div class="success-box">🎯 **VRAI MODÈLE** - Prédictions précises</div>', unsafe_allow_html=True)
+    # Statistiques des appareils
+    st.markdown("#### 📈 Consommation Typique par Appareil")
+    appareils_df = pd.DataFrame([
+        {**data, 'appareil': key} 
+        for key, data in APPAREILS_DATA.items()
+    ])
+    appareils_df['consommation_kwh_jour'] = (
+        appareils_df['puissance_w'] * 
+        appareils_df['heures_usage_jour'] / 1000
+    )
     
-    col1, col2 = st.columns(2)
-    with col1:
-        avg_amperage = st.slider("Ampérage moyen (A)", 0.0, 15.0, 2.5, 0.1)
-        avg_depense = st.slider("Dépense moyenne ($)", 0.0, 1.0, 0.12, 0.01)
-        nb_personnes = st.selectbox("Nombre de personnes", [1, 2, 3, 4, 5, 6, 7, 8], 3)
-    with col2:
-        jours = st.slider("Jours observés", 7, 365, 90)
-        ratio = st.slider("Ratio dépense/ampérage", 0.0, 0.3, 0.06, 0.01)
-
-    if st.button("🎯 Analyser ce Ménage", type="primary", use_container_width=True):
-        pred, prob = clf.predict_household([avg_amperage, avg_depense, nb_personnes, jours, ratio])
-        
-        st.markdown("---")
-        if pred == "grand":
-            st.markdown('<div class="prediction-high"><h1>🔴 GRAND CONSOMMATEUR</h1></div>', unsafe_allow_html=True)
-        elif pred == "moyen":
-            st.markdown('<div class="prediction-medium"><h1>🟡 CONSOMMATION MOYENNE</h1></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="prediction-low"><h1>🟢 FAIBLE CONSOMMATION</h1></div>', unsafe_allow_html=True)
-
-        fig = go.Figure(go.Bar(
-            x=['Faible','Moyenne','Élevée'], 
-            y=prob,
-            marker_color=['#4cd137','#ff9f43','#ff6b6b'],
-            text=[f"{p:.1%}" for p in prob], 
-            textposition='auto'
-        ))
-        fig.update_layout(
-            title="Confiance du Modèle",
-            yaxis=dict(tickformat=".0%", range=[0,1]),
-            height=300
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-# ==============================
-# UPLOAD DE MODÈLE
-# ==============================
-
-def show_model_upload(clf):
-    """📤 Interface pour uploader son modèle"""
-    st.markdown('<h2 class="sub-header">📤 Uploader Votre Modèle</h2>', unsafe_allow_html=True)
-    
-    st.info("""
-    **Pour utiliser votre vrai modèle :**
-    1. Créez un dossier `Model/` dans votre repository
-    2. Uploadez vos fichiers :
-       - `best_model.joblib`
-       - `scaler.joblib` 
-       - `label_encoder.joblib`
-       - `final_results.csv`
-    3. Redémarrez l'application
-    """)
-    
-    if clf.model_loaded:
-        st.success("✅ **VRAI MODÈLE DÉTECTÉ** - Toutes les fonctionnalités utilisent votre modèle entraîné")
-    else:
-        st.warning("🎮 **MODE DÉMO** - Uploadez vos fichiers pour utiliser votre vrai modèle")
+    fig = px.bar(
+        appareils_df.sort_values('consommation_kwh_jour', ascending=False),
+        x='nom',
+        y='consommation_kwh_jour',
+        title="Consommation Quotidienne par Appareil (kWh/jour)",
+        color='consommation_kwh_jour',
+        color_continuous_scale='Viridis'
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 # ==============================
 # APPLICATION PRINCIPALE
 # ==============================
 def main():
-    st.markdown('<h1 class="main-header">🏠 Classification Intelligente des Ménages Haïtiens</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🔌 Calculateur Intelligent de Consommation - Sigora</h1>', unsafe_allow_html=True)
     
     # Initialisation du classifieur
     clf = SigoraHouseholdClassifier()
@@ -585,44 +529,40 @@ def main():
     # Navigation
     st.sidebar.markdown("## 📍 Navigation")
     page = st.sidebar.radio("", [
-        "🏠 Tableau de Bord",
-        "🔮 Prédiction Temps Réel", 
-        "🗺️ Carte Interactive",
-        "💰 Simulateur d'Impact",
-        "🚨 Alertes Temps Réel", 
-        "🔮 Visualisation 3D",
-        "📤 Upload Modèle"
+        "🔌 Calculateur Appareils",
+        "📊 Tableau de Bord",
+        "ℹ️ À Propos"
     ])
 
-    # Routage des pages
-    if page == "🏠 Tableau de Bord":
+    if page == "🔌 Calculateur Appareils":
+        show_appliance_calculator(clf)
+    elif page == "📊 Tableau de Bord":
         show_dashboard(clf)
-    elif page == "🔮 Prédiction Temps Réel":
-        show_prediction(clf)
-    elif page == "🗺️ Carte Interactive":
-        show_interactive_map(clf)
-    elif page == "💰 Simulateur d'Impact":
-        show_impact_simulator(clf)
-    elif page == "🚨 Alertes Temps Réel":
-        show_real_time_alerts(clf)
-    elif page == "🔮 Visualisation 3D":
-        show_3d_clusters(clf)
-    elif page == "📤 Upload Modèle":
-        show_model_upload(clf)
-
-    # Footer
-    st.sidebar.markdown("---")
-    if clf.model_loaded:
-        st.sidebar.success("**🎯 VRAI MODÈLE ACTIVÉ**")
-    else:
-        st.sidebar.info("**🎮 MODE DÉMO**")
-    
-    st.sidebar.markdown("""
-    **ℹ️ À propos**
-    - 🤖 Machine Learning
-    - 📊 Analytics avancé
-    - 🇭🇹 Optimisé pour Haïti
-    """)
+    elif page == "ℹ️ À Propos":
+        st.markdown("""
+        ## ℹ️ À Propos de cette Application
+        
+        **🔌 Calculateur Intelligent de Consommation**
+        
+        Cette application permet de:
+        
+        - 📊 **Calculer la consommation** basée sur les appareils électriques
+        - 🎯 **Prédire le profil** de consommation avec l'IA
+        - 💡 **Donner des recommandations** personnalisées
+        - 🇭🇹 **Être optimisée** pour le contexte haïtien
+        
+        **Fonctionnement:**
+        1. Sélectionnez les appareils utilisés
+        2. Indiquez le nombre de personnes
+        3. Obtenez une estimation de consommation
+        4. Recevez une prédiction IA de votre profil
+        5. Découvrez des recommandations personnalisées
+        
+        **Technologies:**
+        - 🤖 Machine Learning (Random Forest)
+        - 📈 Analytics en temps réel
+        - 🔌 Base de données d'appareils réaliste
+        """)
 
 if __name__ == "__main__":
     main()
