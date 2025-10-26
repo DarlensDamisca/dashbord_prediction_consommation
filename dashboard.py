@@ -1,29 +1,21 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 import joblib
 from datetime import datetime
+import json
 import plotly.express as px
 import plotly.graph_objects as go
-import os
-import json
-from pathlib import Path
+from plotly.subplots import make_subplots
 
-# ==============================
-# CONFIGURATION GLOBALE
-# ==============================
+# Configuration de la page
 st.set_page_config(
-    page_title="Classification des Ménages Haïtiens - Sigora",
-    page_icon="🇭🇹",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Classification des Ménages Haïtiens",
+    page_icon="⚡",
+    layout="wide"
 )
 
-# ==============================
-# STYLE CSS PERSONNALISÉ
-# ==============================
+# CSS personnalisé
 st.markdown("""
 <style>
     .main-header {
@@ -31,532 +23,538 @@ st.markdown("""
         color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
-        font-weight: bold;
     }
-    .sub-header {
-        font-size: 1.5rem;
-        color: #2e86ab;
-        margin-bottom: 1rem;
-        font-weight: bold;
-    }
-    .prediction-high {
-        background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-        color: white;
-        padding: 2rem;
-        border-radius: 15px;
-        text-align: center;
-    }
-    .prediction-medium {
-        background: linear-gradient(135deg, #ffd93d, #ff9f43);
-        color: white;
-        padding: 2rem;
-        border-radius: 15px;
-        text-align: center;
-    }
-    .prediction-low {
-        background: linear-gradient(135deg, #6bcf7f, #4cd137);
-        color: white;
-        padding: 2rem;
-        border-radius: 15px;
-        text-align: center;
-    }
-    .info-box {
-        background-color: #e3f2fd;
-        padding: 1rem;
+    .prediction-card {
+        background-color: #f0f2f6;
+        padding: 20px;
         border-radius: 10px;
-        border-left: 4px solid #2196f3;
-        margin: 1rem 0;
+        border-left: 5px solid #1f77b4;
+        margin: 10px 0;
     }
-    .warning-box {
-        background-color: #fff3cd;
-        padding: 1rem;
+    .high-consumption {
+        border-left-color: #ff4b4b;
+    }
+    .medium-consumption {
+        border-left-color: #ffa500;
+    }
+    .low-consumption {
+        border-left-color: #00cc96;
+    }
+    .metric-card {
+        background-color: white;
+        padding: 15px;
         border-radius: 10px;
-        border-left: 4px solid #ffc107;
-        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ==============================
-# CLASSE PRINCIPALE
-# ==============================
-class SigoraHouseholdClassifier:
+class ConsumptionPredictor:
     def __init__(self):
         self.model = None
         self.scaler = None
-        self.encoder = None
-        self.dataset = None
-        self.performance_metrics = None
-        self.training_q1 = None
-        self.training_q2 = None
-        self.load_artifacts()
-
-    def load_artifacts(self):
-        """Charger les fichiers du modèle"""
-        st.sidebar.info("🔍 Chargement du modèle...")
-
-        base_path = "./Model"
-        if not os.path.exists(base_path):
-            st.sidebar.error("❌ Dossier 'Model/' introuvable")
-            self.setup_demo_mode()
-            return
-
+        self.label_encoder = None
+        self.features = [
+            'avg_amperage_per_day', 
+            'avg_depense_per_day', 
+            'nombre_personnes', 
+            'jours_observed', 
+            'ratio_depense_amperage'
+        ]
+    
+    def load_artifacts(self, model_path, scaler_path, encoder_path):
+        """Charger le modèle et les préprocesseurs"""
         try:
-            files = os.listdir(base_path)
-            st.sidebar.write(f"📁 Fichiers trouvés: {files}")
-
-            # Modèle
-            model_files = [f for f in files if f.startswith('best_model') and f.endswith('.joblib')]
-            if model_files:
-                self.model = joblib.load(os.path.join(base_path, model_files[0]))
-                st.sidebar.success(f"✅ Modèle chargé: {model_files[0]}")
-            else:
-                st.sidebar.warning("⚠️ Modèle non trouvé")
-            
-            # Scaler
-            if 'scaler.joblib' in files:
-                self.scaler = joblib.load(os.path.join(base_path, 'scaler.joblib'))
-                st.sidebar.success("✅ Scaler chargé")
-
-            # Encodeur
-            if 'label_encoder.joblib' in files:
-                self.encoder = joblib.load(os.path.join(base_path, 'label_encoder.joblib'))
-                st.sidebar.success("✅ Encodeur chargé")
-
-            # Données d'entraînement
-            data_files = [f for f in files if f.startswith('final_results') and f.endswith('.csv')]
-            if data_files:
-                self.dataset = pd.read_csv(os.path.join(base_path, data_files[0]))
-                # SAUVEGARDER LES QUANTILES D'ENTRAÎNEMENT
-                self.training_q1 = self.dataset['avg_amperage_per_day'].quantile(0.33)
-                self.training_q2 = self.dataset['avg_amperage_per_day'].quantile(0.66)
-                st.sidebar.success(f"✅ Données chargées: {data_files[0]}")
-                st.sidebar.info(f"📊 Seuils d'entraînement: Q1={self.training_q1:.2f}A, Q2={self.training_q2:.2f}A")
-
-            # Métriques
-            if 'performance_metrics.json' in files:
-                with open(os.path.join(base_path, 'performance_metrics.json'), 'r') as f:
-                    self.performance_metrics = json.load(f)
-                st.sidebar.success("✅ Métriques chargées")
-
-            if self.model is None:
-                st.sidebar.warning("⚠️ Fichiers incomplets - Mode démo activé")
-                self.setup_demo_mode()
-
+            self.model = joblib.load(model_path)
+            self.scaler = joblib.load(scaler_path)
+            self.label_encoder = joblib.load(encoder_path)
+            return True
         except Exception as e:
-            st.sidebar.error(f"❌ Erreur de chargement: {e}")
-            self.setup_demo_mode()
-
-    def setup_demo_mode(self):
-        """Créer un modèle et des données fictives"""
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.preprocessing import StandardScaler, LabelEncoder
-
-        np.random.seed(42)
-        demo_df = pd.DataFrame({
-            'avg_amperage_per_day': np.random.exponential(2.0, 1000),
-            'avg_depense_per_day': np.random.exponential(7.5, 1000),
-            'nombre_personnes': np.random.randint(2, 6, 1000),
-            'jours_observed': np.random.randint(30, 365, 1000),
-            'zone': np.random.choice(['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves', 'Les Cayes'], 1000)
-        })
-        
-        # MÉTHODE DES QUANTILES COMME DANS VOTRE CODE
-        self.training_q1 = demo_df['avg_amperage_per_day'].quantile(0.33)
-        self.training_q2 = demo_df['avg_amperage_per_day'].quantile(0.66)
-        
-        def label_niveau(x):
-            if x <= self.training_q1:
-                return 'petit'
-            elif x <= self.training_q2:
-                return 'moyen'
-            else:
-                return 'grand'
-        
-        demo_df['niveau_conso_pred'] = demo_df['avg_amperage_per_day'].apply(label_niveau)
-        demo_df['ratio_depense_amperage'] = demo_df['avg_depense_per_day'] / (demo_df['avg_amperage_per_day'] + 1e-9)
-
-        X = demo_df[['avg_amperage_per_day','avg_depense_per_day','nombre_personnes','jours_observed','ratio_depense_amperage']]
-        y = demo_df['niveau_conso_pred']
-
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-
-        self.encoder = LabelEncoder()
-        y_enc = self.encoder.fit_transform(y)
-
-        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
-        self.model.fit(X_scaled, y_enc)
-        self.dataset = demo_df
-        st.sidebar.info("🎮 Mode démo activé")
-        st.sidebar.info(f"📊 Seuils démo: Q1={self.training_q1:.2f}A, Q2={self.training_q2:.2f}A")
-
-    def predict_household(self, features):
-        """Faire une prédiction unique - UTILISE LE MODÈLE ENTRAÎNÉ"""
+            st.error(f"Erreur lors du chargement des artefacts: {e}")
+            return False
+    
+    def preprocess_input(self, input_data):
+        """Prétraiter les données d'entrée"""
         try:
-            X = np.array([features]).reshape(1, -1)
-            X_scaled = self.scaler.transform(X)
-            pred = self.model.predict(X_scaled)[0]
-            prob = self.model.predict_proba(X_scaled)[0]
-            label = self.encoder.inverse_transform([pred])[0]
-            return label, prob
+            # Créer un DataFrame avec les features attendues
+            input_df = pd.DataFrame([input_data])
+            
+            # S'assurer que toutes les colonnes sont présentes
+            for feature in self.features:
+                if feature not in input_df.columns:
+                    input_df[feature] = 0
+            
+            # Réorganiser les colonnes dans l'ordre attendu
+            input_df = input_df[self.features]
+            
+            # Standardiser les données
+            input_scaled = self.scaler.transform(input_df)
+            
+            return input_scaled
         except Exception as e:
-            st.error(f"Erreur prédiction: {e}")
-            return "moyen", [0.33, 0.34, 0.33]
-
-    def predict_batch(self, new_data):
-        """Prédire un lot de nouvelles données - UTILISE LE MODÈLE ENTRAÎNÉ"""
+            st.error(f"Erreur lors du prétraitement: {e}")
+            return None
+    
+    def predict(self, input_data):
+        """Faire une prédiction"""
         try:
-            required_cols = ['avg_amperage_per_day','avg_depense_per_day','nombre_personnes','jours_observed','ratio_depense_amperage']
+            input_scaled = self.preprocess_input(input_data)
+            if input_scaled is None:
+                return None
             
-            # Vérifier les colonnes
-            missing_cols = [col for col in required_cols if col not in new_data.columns]
-            if missing_cols:
-                raise ValueError(f"Colonnes manquantes: {missing_cols}")
+            # Prédiction
+            prediction_encoded = self.model.predict(input_scaled)[0]
+            probabilities = self.model.predict_proba(input_scaled)[0]
             
-            # Préparer les features
-            X = new_data[required_cols]
-            X_scaled = self.scaler.transform(X)
+            # Décoder la prédiction
+            prediction_decoded = self.label_encoder.inverse_transform([prediction_encoded])[0]
             
-            # Prédictions
-            predictions = self.model.predict(X_scaled)
-            probabilities = self.model.predict_proba(X_scaled)
-            labels = self.encoder.inverse_transform(predictions)
-            
-            # Ajouter les résultats
-            result_df = new_data.copy()
-            result_df['niveau_conso_pred'] = labels
-            result_df['prob_faible'] = probabilities[:, 0]
-            result_df['prob_moyenne'] = probabilities[:, 1]
-            result_df['prob_elevee'] = probabilities[:, 2]
-            
-            return result_df
-            
+            return {
+                'prediction': prediction_decoded,
+                'probabilities': probabilities,
+                'classes': self.label_encoder.classes_
+            }
         except Exception as e:
-            st.error(f"Erreur lors de la prédiction par lot: {e}")
+            st.error(f"Erreur lors de la prédiction: {e}")
             return None
 
-    def get_training_quantiles_interpretation(self, amperage):
-        """Interprétation basée sur les quantiles d'entraînement"""
-        if self.training_q1 is None or self.training_q2 is None:
-            return "Seuils d'entraînement non disponibles"
-        
-        if amperage <= self.training_q1:
-            return f"🟢 FAIBLE (≤{self.training_q1:.2f}A - 33% inférieur des données d'entraînement)"
-        elif amperage <= self.training_q2:
-            return f"🟡 MOYEN ({self.training_q1:.2f}A - {self.training_q2:.2f}A - 33% moyen)"
-        else:
-            return f"🔴 ÉLEVÉ (>{self.training_q2:.2f}A - 33% supérieur)"
-
-# ==============================
-# PAGES DE L'APPLICATION
-# ==============================
-
-def show_dashboard(clf):
-    st.markdown('<h2 class="sub-header">📊 Tableau de Bord Principal</h2>', unsafe_allow_html=True)
-    
-    if clf.dataset is None:
-        st.warning("Aucune donnée d'entraînement disponible")
-        return
-
-    # Métriques principales
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("🏠 Ménages analysés", len(clf.dataset))
-    
-    with col2:
-        acc = clf.performance_metrics.get("test_accuracy", 0.95) * 100 if clf.performance_metrics else 95.6
-        st.metric("🎯 Précision du modèle", f"{acc:.1f}%")
-    
-    with col3:
-        high_cons = (clf.dataset["niveau_conso_pred"]=="grand").sum()
-        st.metric("🔴 Grands consommateurs", high_cons)
-    
-    with col4:
-        zones = clf.dataset["zone"].nunique() if "zone" in clf.dataset else 4
-        st.metric("📍 Zones couvertes", zones)
-
-    # Seuils d'entraînement
-    if clf.training_q1 is not None:
-        st.info(f"**📊 Seuils d'entraînement (quantiles) :** Q1 (33%) = {clf.training_q1:.2f}A • Q2 (66%) = {clf.training_q2:.2f}A")
-
-    # Graphiques
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.markdown("#### 📈 Répartition des Consommations")
-        dist = clf.dataset["niveau_conso_pred"].value_counts()
-        fig = px.pie(values=dist.values, names=dist.index, hole=0.4,
-                    color=dist.index, color_discrete_map={'petit':'#4cd137','moyen':'#ff9f43','grand':'#ff6b6b'})
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_right:
-        st.markdown("#### 📊 Distribution des Ampérages")
-        fig = px.histogram(clf.dataset, x='avg_amperage_per_day', nbins=50,
-                          title="Distribution avec seuils d'entraînement")
-        if clf.training_q1:
-            fig.add_vline(x=clf.training_q1, line_dash="dash", line_color="green",
-                         annotation_text=f"Q1 = {clf.training_q1:.2f}A")
-            fig.add_vline(x=clf.training_q2, line_dash="dash", line_color="red",
-                         annotation_text=f"Q2 = {clf.training_q2:.2f}A")
-        st.plotly_chart(fig, use_container_width=True)
-
-def show_prediction(clf):
-    st.markdown('<h2 class="sub-header">🔮 Prédiction en Temps Réel</h2>', unsafe_allow_html=True)
-    
-    with st.expander("ℹ️ INFORMATION IMPORTANTE", expanded=True):
-        st.markdown("""
-        ### 🎯 MODE DE PRÉDICTION POUR NOUVELLES DONNÉES
-        
-        **Le modèle utilise les SEUILS D'ENTRAÎNEMENT pour classifier :**
-        - Basé sur les quantiles calculés lors de l'entraînement
-        - Les nouvelles données sont comparées aux données historiques
-        - **Ne recalcule PAS les quantiles** sur les nouvelles données
-        
-        **Avantages :**
-        - Cohérence avec le modèle entraîné
-        - Comparaison standardisée dans le temps
-        - Pas de biais lié aux nouvelles distributions
-        """)
-        if clf.training_q1:
-            st.markdown(f"""
-            **Seuils d'entraînement utilisés :**
-            - **Faible** : ≤ {clf.training_q1:.2f}A (33% inférieur des données d'entraînement)
-            - **Moyen** : ≤ {clf.training_q2:.2f}A (33% moyen)
-            - **Élevé** : > {clf.training_q2:.2f}A (33% supérieur)
-            """)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        avg_amperage = st.slider("Ampérage moyen (A)", 0.0, 50.0, 2.5)
-        avg_depense = st.slider("Dépense moyenne (HTG)", 0.0, 300.0, 22.5)
-        nb_personnes = st.number_input("Nombre de personnes", 1, 10, 4)
-        
-        # Interprétation en temps réel
-        if clf.training_q1:
-            interpretation = clf.get_training_quantiles_interpretation(avg_amperage)
-            if "FAIBLE" in interpretation:
-                st.success(interpretation)
-            elif "MOYEN" in interpretation:
-                st.warning(interpretation)
-            else:
-                st.error(interpretation)
-    
-    with col2:
-        jours = st.slider("Jours observés", 1, 365, 90)
-        ratio = st.slider("Ratio (HTG/A)", 0.0, 150.0, 9.0)
-
-    if st.button("🎯 PRÉDIRE LA CONSOMMATION", use_container_width=True):
-        pred, prob = clf.predict_household([avg_amperage, avg_depense, nb_personnes, jours, ratio])
-        
-        # Affichage des résultats
-        st.markdown("---")
-        st.markdown("## 📋 RÉSULTATS DE LA PRÉDICTION")
-        
-        label_mapping = {
-            'petit': ('🟢 FAIBLE CONSOMMATION', 'prediction-low'),
-            'moyen': ('🟡 CONSOMMATION MOYENNE', 'prediction-medium'),
-            'grand': ('🔴 GRAND CONSOMMATEUR', 'prediction-high')
-        }
-        
-        prediction_text, prediction_class = label_mapping.get(pred, ('🟡 CONSOMMATION MOYENNE', 'prediction-medium'))
-        st.markdown(f'<div class="{prediction_class}"><h1>{prediction_text}</h1></div>', unsafe_allow_html=True)
-        
-        # Graphique des probabilités
-        fig = go.Figure(go.Bar(
-            x=['Faible','Moyenne','Élevée'], y=prob,
-            marker_color=['#4cd137','#ff9f43','#ff6b6b'],
-            text=[f"{p:.1%}" for p in prob], textposition='auto'
-        ))
-        fig.update_layout(title="Probabilités de classification", yaxis=dict(tickformat=".0%", range=[0,1]))
-        st.plotly_chart(fig, use_container_width=True)
-
-def show_new_data_prediction(clf):
-    st.markdown('<h2 class="sub-header">📁 Prédictions sur Nouvelles Données</h2>', unsafe_allow_html=True)
+def main():
+    # En-tête de l'application
+    st.markdown('<h1 class="main-header">⚡ Classification des Ménages Haïtiens</h1>', 
+                unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="info-box">
-    <h4>🎯 MODE PRÉDICTION POUR NOUVELLES DONNÉES</h4>
-    <p><strong>Le modèle utilise les SEUILS D'ENTRAÎNEMENT pour classifier vos nouvelles données :</strong></p>
+    Cette application utilise un modèle de machine learning pour classifier les ménages haïtiens 
+    selon leur niveau de consommation énergétique (faible, moyen, élevé).
     """)
     
-    if clf.training_q1:
-        st.markdown(f"""
-        <ul>
-            <li>• <strong>Faible consommation</strong> : ≤ {clf.training_q1:.2f}A (33% inférieur des données d'entraînement)</li>
-            <li>• <strong>Consommation moyenne</strong> : ≤ {clf.training_q2:.2f}A (33% moyen)</li>
-            <li>• <strong>Grande consommation</strong> : > {clf.training_q2:.2f}A (33% supérieur)</li>
-        </ul>
-        """, unsafe_allow_html=True)
+    # Initialisation du prédicteur
+    predictor = ConsumptionPredictor()
     
-    st.markdown("""
-    <p><strong>⚠️ IMPORTANT :</strong> Les nouvelles données sont comparées aux données d'entraînement, 
-    les quantiles ne sont pas recalculés.</p>
+    # Sidebar pour la navigation
+    st.sidebar.title("Navigation")
+    app_mode = st.sidebar.selectbox(
+        "Choisir le mode",
+        ["🔮 Prédiction Unique", "📊 Batch Prediction", "📈 Analytics", "ℹ️ A propos"]
+    )
+    
+    # Chargement des artefacts (à adapter selon votre chemin)
+    with st.sidebar.expander("Configuration du Modèle"):
+        st.info("""
+        Le modèle chargé est XGBoost optimisé avec:
+        - F1-Score: 99.8%
+        - Balanced Accuracy: 99.8%
+        """)
+    
+    # Chemin vers vos artefacts (à modifier selon votre structure)
+    model_path = "Model/best_model_20251025_2039.joblib"
+    scaler_path = "Model/scaler.joblib"
+    encoder_path = "Model/label_encoder.joblib"
+    
+    # Charger les artefacts
+    if not predictor.load_artifacts(model_path, scaler_path, encoder_path):
+        st.error("Impossible de charger le modèle. Vérifiez les chemins des fichiers.")
+        return
+    
+    if app_mode == "🔮 Prédiction Unique":
+        show_single_prediction(predictor)
+    elif app_mode == "📊 Batch Prediction":
+        show_batch_prediction(predictor)
+    elif app_mode == "📈 Analytics":
+        show_analytics()
+    else:
+        show_about()
+
+def show_single_prediction(predictor):
+    """Interface pour la prédiction unique"""
+    
+    st.header("🔮 Prédiction de Consommation")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Paramètres du Ménage")
+        
+        # Formulaire de saisie
+        avg_amperage = st.number_input(
+            "Ampérage moyen quotidien (A)",
+            min_value=0.0,
+            max_value=100.0,
+            value=1.5,
+            step=0.1,
+            help="Consommation électrique moyenne par jour"
+        )
+        
+        avg_depense = st.number_input(
+            "Dépenses moyennes quotidiennes ($)",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.5,
+            step=0.01,
+            help="Dépenses moyennes en électricité par jour"
+        )
+        
+        nombre_personnes = st.number_input(
+            "Nombre de personnes dans le foyer",
+            min_value=1,
+            max_value=20,
+            value=4,
+            step=1
+        )
+        
+        jours_observed = st.number_input(
+            "Nombre de jours d'observation",
+            min_value=1,
+            max_value=365,
+            value=30,
+            step=1,
+            help="Nombre de jours sur lesquels les données sont collectées"
+        )
+    
+    with col2:
+        st.subheader("Informations Complémentaires")
+        
+        zone = st.selectbox(
+            "Zone géographique",
+            ["Zone Inconnue", "Môle Saint-Nicolas", "Jean Rabel", "Bombardopolis", "Mare-Rouge"]
+        )
+        
+        type_maison = st.selectbox(
+            "Type de maison",
+            ["Rezidansyel", "Apartment", "Kay modèn", "Kay tradisyonèl"]
+        )
+        
+        # Calcul automatique du ratio
+        if avg_amperage > 0:
+            ratio = avg_depense / avg_amperage
+        else:
+            ratio = 0
+        
+        st.metric("Ratio Dépenses/Ampérage", f"{ratio:.4f}")
+        
+        # Bouton de prédiction
+        if st.button("🔍 Prédire le Niveau de Consommation", type="primary"):
+            # Préparation des données d'entrée
+            input_data = {
+                'avg_amperage_per_day': avg_amperage,
+                'avg_depense_per_day': avg_depense,
+                'nombre_personnes': nombre_personnes,
+                'jours_observed': jours_observed,
+                'ratio_depense_amperage': ratio
+            }
+            
+            # Prédiction
+            result = predictor.predict(input_data)
+            
+            if result:
+                display_prediction_result(result, input_data)
+
+def display_prediction_result(result, input_data):
+    """Afficher les résultats de la prédiction"""
+    
+    prediction = result['prediction']
+    probabilities = result['probabilities']
+    classes = result['classes']
+    
+    # Déterminer la classe CSS
+    if prediction == 'grand':
+        css_class = "high-consumption"
+        color = "#ff4b4b"
+        emoji = "🔴"
+    elif prediction == 'moyen':
+        css_class = "medium-consumption"
+        color = "#ffa500"
+        emoji = "🟡"
+    else:
+        css_class = "low-consumption"
+        color = "#00cc96"
+        emoji = "🟢"
+    
+    # Carte de résultat
+    st.markdown(f"""
+    <div class="prediction-card {css_class}">
+        <h2>{emoji} Prédiction: {prediction.upper()}</h2>
+        <p>Le ménage est classifié comme <strong>{prediction} consommateur</strong></p>
     </div>
     """, unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader("Importer un fichier CSV avec les nouvelles données", type=["csv"])
+    # Métriques et visualisations
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Graphique en radar des probabilités
+        fig_radar = go.Figure()
+        
+        fig_radar.add_trace(go.Scatterpolar(
+            r=probabilities,
+            theta=[c.capitalize() for c in classes],
+            fill='toself',
+            fillcolor=color,
+            opacity=0.6,
+            line=dict(color=color)
+        ))
+        
+        fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 1]
+                )),
+            showlegend=False,
+            title="Probabilités de Classification",
+            height=300
+        )
+        
+        st.plotly_chart(fig_radar, use_container_width=True)
+    
+    with col2:
+        # Bar chart des probabilités
+        fig_bar = px.bar(
+            x=[c.capitalize() for c in classes],
+            y=probabilities,
+            color=probabilities,
+            color_continuous_scale=['green', 'orange', 'red'],
+            labels={'x': 'Classe', 'y': 'Probabilité'},
+            title="Distribution des Probabilités"
+        )
+        fig_bar.update_layout(height=300, showlegend=False)
+        st.plotly_chart(fig_bar, use_container_width=True)
+    
+    with col3:
+        # Métriques détaillées
+        st.metric("Confiance Maximale", f"{max(probabilities)*100:.1f}%")
+        st.metric("Ampérage Quotidien", f"{input_data['avg_amperage_per_day']} A")
+        st.metric("Dépenses Quotidiennes", f"${input_data['avg_depense_per_day']:.2f}")
+    
+    # Recommandations basées sur la prédiction
+    st.subheader("🎯 Recommandations")
+    
+    recommendations = {
+        'petit': [
+            "✅ Profil de consommation efficace",
+            "💡 Maintenir les bonnes habitudes de consommation",
+            "📊 Surveillance standard mensuelle suffisante"
+        ],
+        'moyen': [
+            "⚠️ Consommation dans la moyenne",
+            "🔍 Analyser les opportunités d'optimisation",
+            "📈 Surveiller les pics de consommation"
+        ],
+        'grand': [
+            "🚨 Forte consommation détectée",
+            "💡 Audit énergétique recommandé",
+            "🔧 Optimisation des équipements énergivores",
+            "📋 Plan de réduction de consommation"
+        ]
+    }
+    
+    for rec in recommendations.get(prediction, []):
+        st.write(rec)
+
+def show_batch_prediction(predictor):
+    """Interface pour les prédictions par lot"""
+    
+    st.header("📊 Prédiction par Lot")
+    
+    st.info("""
+    Téléchargez un fichier CSV contenant les données des ménages. 
+    Le fichier doit contenir les colonnes suivantes:
+    - avg_amperage_per_day
+    - avg_depense_per_day  
+    - nombre_personnes
+    - jours_observed
+    - ratio_depense_amperage (optionnel, calculé automatiquement si absent)
+    """)
+    
+    uploaded_file = st.file_uploader("Choisir un fichier CSV", type="csv")
     
     if uploaded_file is not None:
         try:
-            new_data = pd.read_csv(uploaded_file)
-            st.success(f"✅ Fichier importé : {uploaded_file.name} ({len(new_data)} lignes)")
-            
-            # Vérification des colonnes
-            required_cols = ['avg_amperage_per_day','avg_depense_per_day','nombre_personnes','jours_observed','ratio_depense_amperage']
-            missing_cols = [col for col in required_cols if col not in new_data.columns]
-            
-            if missing_cols:
-                st.error(f"❌ Colonnes manquantes : {missing_cols}")
-                st.info("""
-                **Format requis :**
-                - `avg_amperage_per_day` : Ampérage moyen (A)
-                - `avg_depense_per_day` : Dépense moyenne (HTG)  
-                - `nombre_personnes` : Nombre de personnes
-                - `jours_observed` : Jours d'observation
-                - `ratio_depense_amperage` : Ratio (HTG/A)
-                """)
-                return
+            # Lecture du fichier
+            df = pd.read_csv(uploaded_file)
+            st.success(f"Fichier chargé avec succès: {len(df)} enregistrements")
             
             # Aperçu des données
-            st.markdown("### 📊 Aperçu des données importées")
-            st.dataframe(new_data.head(10), use_container_width=True)
+            st.subheader("Aperçu des Données")
+            st.dataframe(df.head())
             
-            # Statistiques descriptives
-            st.markdown("### 📈 Statistiques des nouvelles données")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Ampérage moyen", f"{new_data['avg_amperage_per_day'].mean():.2f}A")
-            with col2:
-                st.metric("Dépense moyenne", f"{new_data['avg_depense_per_day'].mean():.1f} HTG")
-            with col3:
-                st.metric("Taille moyenne", f"{new_data['nombre_personnes'].mean():.1f} pers")
+            # Vérification des colonnes requises
+            required_columns = ['avg_amperage_per_day', 'avg_depense_per_day', 
+                              'nombre_personnes', 'jours_observed']
             
-            # Comparaison avec les seuils d'entraînement
-            if clf.training_q1:
-                st.markdown("### 🔍 Comparaison avec les seuils d'entraînement")
-                new_q1 = new_data['avg_amperage_per_day'].quantile(0.33)
-                new_q2 = new_data['avg_amperage_per_day'].quantile(0.66)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**Seuils d'entraînement (fixes) :**")
-                    st.write(f"- Q1 (33%) : {clf.training_q1:.2f}A")
-                    st.write(f"- Q2 (66%) : {clf.training_q2:.2f}A")
-                
-                with col2:
-                    st.markdown("**Quantiles des nouvelles données :**")
-                    st.write(f"- Q1 (33%) : {new_q1:.2f}A")
-                    st.write(f"- Q2 (66%) : {new_q2:.2f}A")
-                
-                if abs(new_q1 - clf.training_q1) > 0.5 or abs(new_q2 - clf.training_q2) > 0.5:
-                    st.warning("""
-                    **⚠️ Attention :** Les nouvelles données ont une distribution différente des données d'entraînement.
-                    Les prédictions utilisent les seuils d'entraînement pour maintenir la cohérence.
-                    """)
+            missing_columns = [col for col in required_columns if col not in df.columns]
             
-            # Prédictions
-            if st.button("🚀 Lancer les prédictions", use_container_width=True):
-                with st.spinner("⏳ Calcul des prédictions..."):
-                    results = clf.predict_batch(new_data)
-                    
-                    if results is not None:
-                        st.success("✅ Prédictions terminées !")
+            if missing_columns:
+                st.error(f"Colonnes manquantes: {missing_columns}")
+            else:
+                # Calcul du ratio si absent
+                if 'ratio_depense_amperage' not in df.columns:
+                    df['ratio_depense_amperage'] = df['avg_depense_per_day'] / df['avg_amperage_per_day']
+                    df['ratio_depense_amperage'] = df['ratio_depense_amperage'].replace([np.inf, -np.inf], 0)
+                
+                if st.button("🚀 Lancer les Prédictions", type="primary"):
+                    with st.spinner("Traitement en cours..."):
+                        predictions = []
+                        probabilities_list = []
                         
-                        # Résumé des prédictions
-                        st.markdown("### 📋 Résumé des prédictions")
-                        pred_counts = results['niveau_conso_pred'].value_counts()
+                        for _, row in df.iterrows():
+                            input_data = {
+                                'avg_amperage_per_day': row['avg_amperage_per_day'],
+                                'avg_depense_per_day': row['avg_depense_per_day'],
+                                'nombre_personnes': row['nombre_personnes'],
+                                'jours_observed': row['jours_observed'],
+                                'ratio_depense_amperage': row['ratio_depense_amperage']
+                            }
+                            
+                            result = predictor.predict(input_data)
+                            if result:
+                                predictions.append(result['prediction'])
+                                probabilities_list.append(result['probabilities'])
+                            else:
+                                predictions.append('Erreur')
+                                probabilities_list.append([0, 0, 0])
                         
-                        col1, col2, col3 = st.columns(3)
+                        # Ajout des résultats au DataFrame
+                        df_result = df.copy()
+                        df_result['niveau_conso_pred'] = predictions
+                        df_result['prob_petit'] = [p[0] for p in probabilities_list]
+                        df_result['prob_moyen'] = [p[1] for p in probabilities_list]
+                        df_result['prob_grand'] = [p[2] for p in probabilities_list]
+                        df_result['confiance'] = [max(p) for p in probabilities_list]
+                        
+                        # Affichage des résultats
+                        st.subheader("Résultats des Prédictions")
+                        st.dataframe(df_result)
+                        
+                        # Statistiques
+                        st.subheader("📈 Statistiques des Prédictions")
+                        col1, col2, col3, col4 = st.columns(4)
+                        
                         with col1:
-                            st.metric("🟢 Faible consommation", pred_counts.get('petit', 0))
+                            count_petit = (df_result['niveau_conso_pred'] == 'petit').sum()
+                            st.metric("Petits Consommateurs", count_petit)
+                        
                         with col2:
-                            st.metric("🟡 Consommation moyenne", pred_counts.get('moyen', 0))
+                            count_moyen = (df_result['niveau_conso_pred'] == 'moyen').sum()
+                            st.metric("Moyens Consommateurs", count_moyen)
+                        
                         with col3:
-                            st.metric("🔴 Grand consommateur", pred_counts.get('grand', 0))
+                            count_grand = (df_result['niveau_conso_pred'] == 'grand').sum()
+                            st.metric("Grands Consommateurs", count_grand)
                         
-                        # Distribution des prédictions
-                        st.markdown("### 📊 Distribution des prédictions")
-                        fig = px.pie(values=pred_counts.values, names=pred_counts.index, 
-                                    color=pred_counts.index,
-                                    color_discrete_map={'petit':'#4cd137','moyen':'#ff9f43','grand':'#ff6b6b'})
-                        st.plotly_chart(fig, use_container_width=True)
+                        with col4:
+                            avg_confidence = df_result['confiance'].mean()
+                            st.metric("Confiance Moyenne", f"{avg_confidence*100:.1f}%")
                         
-                        # Tableau des résultats
-                        st.markdown("### 📄 Détail des prédictions")
-                        st.dataframe(results, use_container_width=True)
-                        
-                        # Téléchargement
-                        csv = results.to_csv(index=False).encode('utf-8')
+                        # Téléchargement des résultats
+                        csv = df_result.to_csv(index=False)
                         st.download_button(
-                            "💾 Télécharger les résultats",
-                            csv,
-                            "predictions_nouvelles_donnees.csv",
-                            "text/csv",
-                            use_container_width=True
+                            label="📥 Télécharger les Résultats (CSV)",
+                            data=csv,
+                            file_name=f"predictions_consommation_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                            mime="text/csv"
                         )
                         
         except Exception as e:
-            st.error(f"❌ Erreur lors du traitement du fichier : {e}")
+            st.error(f"Erreur lors du traitement du fichier: {e}")
 
-def show_help_guide():
-    st.markdown('<h2 class="sub-header">📖 Guide des Prédictions</h2>', unsafe_allow_html=True)
+def show_analytics():
+    """Page d'analytics et de visualisations"""
+    
+    st.header("📈 Analytics et Insights")
+    
+    # Métriques globales
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Performance du Modèle", "99.8%")
+    
+    with col2:
+        st.metric("Précision", "99.8%")
+    
+    with col3:
+        st.metric("Taux d'Erreur", "0.2%")
+    
+    with col4:
+        st.metric("Données d'Entraînement", "2,716 foyers")
+    
+    # Visualisations
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Distribution des classes (exemple)
+        distribution_data = {
+            'Classe': ['Petit', 'Moyen', 'Grand'],
+            'Pourcentage': [34.0, 33.0, 33.0]
+        }
+        
+        fig_dist = px.pie(
+            distribution_data, 
+            values='Pourcentage', 
+            names='Classe',
+            title="Distribution des Classes de Consommation",
+            color='Classe',
+            color_discrete_map={'Petit': 'green', 'Moyen': 'orange', 'Grand': 'red'}
+        )
+        st.plotly_chart(fig_dist, use_container_width=True)
+    
+    with col2:
+        # Importance des features (exemple)
+        importance_data = {
+            'Feature': ['Ampérage Moyen', 'Dépenses Moyennes', 'Ratio', 'Jours Obs.', 'Nb Personnes'],
+            'Importance': [60.5, 35.1, 3.4, 0.8, 0.2]
+        }
+        
+        fig_imp = px.bar(
+            importance_data,
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            title="Importance des Caractéristiques",
+            color='Importance',
+            color_continuous_scale='Blues'
+        )
+        st.plotly_chart(fig_imp, use_container_width=True)
+
+def show_about():
+    """Page À propos"""
+    
+    st.header("ℹ️ À Propos")
     
     st.markdown("""
-    <div class="info-box">
-    <h4>🎯 STRATÉGIE DE PRÉDICTION POUR NOUVELLES DONNÉES</h4>
+    ## Classification des Ménages Haïtiens par Niveau de Consommation Énergétique
     
-    <h5>Pourquoi utiliser les seuils d'entraînement ?</h5>
-    <p><strong>Problème :</strong> Si on recalcule les quantiles sur les nouvelles données :</p>
-    <ul>
-        <li>• Un ménage pourrait changer de catégorie sans changer sa consommation</li>
-        <li>• Impossibilité de comparer dans le temps</li>
-        <li>• Perte de la signification originale des labels</li>
-    </ul>
+    ### 📋 Description du Projet
+    Cette application utilise un modèle de machine learning avancé pour classifier automatiquement 
+    les ménages haïtiens selon leur niveau de consommation énergétique.
     
-    <h5>Solution : Seuils fixes d'entraînement</h5>
-    <ul>
-        <li>• <strong>Cohérence</strong> : Mêmes seuils pour toutes les prédictions</li>
-        <li>• <strong>Comparabilité</strong> : Possibilité de comparer dans le temps</li>
-        <li>• <strong>Stabilité</strong> : Les labels gardent leur signification</li>
-    </ul>
+    ### 🎯 Objectifs
+    - **Segmenter** les ménages en trois catégories: petit, moyen, grand consommateur
+    - **Optimiser** la planification énergétique nationale
+    - **Personnaliser** les stratégies tarifaires et d'efficacité énergétique
     
-    <h5>Que faire si la distribution change ?</h5>
-    <p>Si les nouvelles données sont très différentes :</p>
-    <ul>
-        <li>1. <strong>Recalculer le modèle</strong> avec l'ensemble des données</li>
-        <li>2. <strong>Mettre à jour les seuils</strong> d'entraînement</li>
-        <li>3. <strong>Reprédire</strong> toutes les données avec les nouveaux seuils</li>
-    </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ==============================
-# APPLICATION PRINCIPALE
-# ==============================
-def main():
-    st.markdown('<h1 class="main-header">🏠 Classification des Ménages Haïtiens</h1>', unsafe_allow_html=True)
+    ### 🔧 Technologies Utilisées
+    - **Machine Learning**: XGBoost, Random Forest, Logistic Regression
+    - **Traitement des Données**: Pandas, NumPy, Scikit-learn
+    - **Visualisation**: Plotly, Matplotlib
+    - **Interface**: Streamlit
+    - **Données**: Compteurs intelligents Sigora (Janvier 2023 - Septembre 2025)
     
-    clf = SigoraHouseholdClassifier()
-
-    page = st.sidebar.radio("Navigation", [
-        "🏠 Tableau de Bord",
-        "🔮 Prédiction Temps Réel", 
-        "📁 Nouvelles Données",
-        "📖 Guide des Prédictions"
-    ])
-
-    if page == "🏠 Tableau de Bord":
-        show_dashboard(clf)
-    elif page == "🔮 Prédiction Temps Réel":
-        show_prediction(clf)
-    elif page == "📁 Nouvelles Données":
-        show_new_data_prediction(clf)
-    elif page == "📖 Guide des Prédictions":
-        show_help_guide()
+    ### 📊 Performance du Modèle
+    - **F1-Score**: 99.8%
+    - **Balanced Accuracy**: 99.8%
+    - **Précision**: 99.8%
+    - **Taux d'Erreur**: 0.2%
     
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("**Sigora Haiti** - *Énergie intelligente*")
+    ### 👥 Équipe
+    - Saint Germain Emode
+    - Darlens Damisca
+    
+    ### 📞 Contact
+    Pour toute question ou suggestion, contactez-nous:
+    - ger-modeel2@gmail.com
+    - bdamisca96@gmail.com
+    """)
 
 if __name__ == "__main__":
     main()
