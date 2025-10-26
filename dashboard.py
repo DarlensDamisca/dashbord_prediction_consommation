@@ -78,6 +78,13 @@ st.markdown("""
         font-style: italic;
         margin-top: 0.5rem;
     }
+    .inconsistency-warning {
+        background-color: #ffeaa7;
+        border-left: 4px solid #fdcb6e;
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -380,13 +387,24 @@ def show_prediction(clf):
     if st.button("🎯 ANALYSER CE MÉNAGE", use_container_width=True):
         pred, prob = clf.predict_household([avg_amperage, avg_depense, nb_personnes, jours, ratio])
         
-        # Section de résultats détaillés
+        # SECTION CORRIGÉE : AFFICHAGE COHÉRENT
         st.markdown("---")
         st.markdown("## 📋 RÉSULTATS DE L'ANALYSE")
         
-        # Affichage visuel de la prédiction
+        # CORRECTION : Mapping cohérent entre les labels
+        label_mapping = {
+            'petit': ('🟢 FAIBLE CONSOMMATION', 'prediction-low'),
+            'moyen': ('🟡 CONSOMMATION MOYENNE', 'prediction-medium'),
+            'grand': ('🔴 GRAND CONSOMMATEUR', 'prediction-high')
+        }
+        
+        prediction_text, prediction_class = label_mapping.get(pred, ('🟡 CONSOMMATION MOYENNE', 'prediction-medium'))
+        
+        # Affichage cohérent de la prédiction
+        st.markdown(f'<div class="{prediction_class}"><h1>{prediction_text}</h1></div>', unsafe_allow_html=True)
+        
+        # Messages d'interprétation cohérents
         if pred == "grand":
-            st.markdown('<div class="prediction-high"><h1>🔴 GRAND CONSOMMATEUR</h1></div>', unsafe_allow_html=True)
             st.markdown("""
             <div class="info-box">
             <h4>🎯 QUE SIGNIFIE CE RÉSULTAT ?</h4>
@@ -400,7 +418,6 @@ def show_prediction(clf):
             </div>
             """, unsafe_allow_html=True)
         elif pred == "moyen":
-            st.markdown('<div class="prediction-medium"><h1>🟡 CONSOMMATION MOYENNE</h1></div>', unsafe_allow_html=True)
             st.markdown("""
             <div class="info-box">
             <h4>🎯 QUE SIGNIFIE CE RÉSULTAT ?</h4>
@@ -413,8 +430,7 @@ def show_prediction(clf):
             </ul>
             </div>
             """, unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="prediction-low"><h1>🟢 FAIBLE CONSOMMATION</h1></div>', unsafe_allow_html=True)
+        else:  # pred == "petit"
             st.markdown("""
             <div class="info-box">
             <h4>🎯 QUE SIGNIFIE CE RÉSULTAT ?</h4>
@@ -428,7 +444,7 @@ def show_prediction(clf):
             </div>
             """, unsafe_allow_html=True)
         
-        # Graphique de probabilités AVEC EXPLICATIONS DÉTAILLÉES
+        # GRAPHIQUE DE CONFIANCE CORRIGÉ
         st.markdown("---")
         st.markdown("## 📊 COMMENT LIRE CE GRAPHIQUE ?")
         
@@ -455,11 +471,29 @@ def show_prediction(clf):
             
             max_prob = max(prob)
             pred_index = np.argmax(prob)
-            confidence_levels = ['Faible', 'Moyenne', 'Élevée']
+            
+            # CORRECTION : Mapping cohérent des catégories
+            confidence_mapping = {
+                0: ('Faible', 'petit'),
+                1: ('Moyenne', 'moyen'), 
+                2: ('Élevée', 'grand')
+            }
+            
+            predicted_display, predicted_actual = confidence_mapping.get(pred_index, ('Moyenne', 'moyen'))
             
             st.markdown(f"### 📈 VOTRE RÉSULTAT :")
-            st.markdown(f"**Catégorie prédite :** `{confidence_levels[pred_index]}`")
+            st.markdown(f"**Catégorie prédite :** `{predicted_display}`")
             st.markdown(f"**Niveau de confiance :** `{max_prob:.1%}`")
+            
+            # VÉRIFICATION DE COHÉRENCE
+            if predicted_actual != pred:
+                st.markdown("""
+                <div class="inconsistency-warning">
+                <h4>⚠️ INCOHÉRENCE DÉTECTÉE</h4>
+                <p>Il y a un décalage entre l'affichage et la prédiction réelle. 
+                Veuillez signaler cette anomalie à l'équipe technique.</p>
+                </div>
+                """, unsafe_allow_html=True)
             
             if max_prob > 0.8:
                 st.success("**✅ TRÈS FIABLE** - Le modèle est très certain")
@@ -469,10 +503,14 @@ def show_prediction(clf):
                 st.warning("**⚠️ INCERTAIN** - Plusieurs catégories possibles")
         
         with col_graph:
+            # CORRECTION : Ordre cohérent des catégories
+            categories = ['Faible', 'Moyenne', 'Élevée']
+            colors = ['#4cd137', '#ff9f43', '#ff6b6b']
+            
             fig = go.Figure(go.Bar(
-                x=['Faible','Moyenne','Élevée'], 
+                x=categories, 
                 y=prob,
-                marker_color=['#4cd137','#ff9f43','#ff6b6b'],
+                marker_color=colors,
                 text=[f"{p:.1%}" for p in prob], 
                 textposition='auto',
                 hovertemplate="<b>%{x}</b><br>Probabilité: %{y:.1%}<extra></extra>"
@@ -488,9 +526,17 @@ def show_prediction(clf):
                 height=400
             )
             
-            # Ajouter une ligne pour le seuil de confiance
-            fig.add_hline(y=0.7, line_dash="dash", line_color="red", 
-                         annotation_text="Seuil de bonne confiance (70%)")
+            # Mettre en évidence la catégorie prédite
+            fig.add_annotation(
+                x=pred_index,
+                y=prob[pred_index] + 0.05,
+                text="PRÉDICTION",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=2,
+                arrowcolor="black"
+            )
             
             st.plotly_chart(fig, use_container_width=True)
 
