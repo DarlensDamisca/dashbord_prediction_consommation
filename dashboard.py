@@ -238,9 +238,9 @@ def main():
         """)
     
     # Chemin vers vos artefacts (à modifier selon votre structure)
-    model_path = "sigor_model_artifacts/best_model_20251025_2039.joblib"
-    scaler_path = "sigor_model_artifacts/scaler.joblib"
-    encoder_path = "sigor_model_artifacts/label_encoder.joblib"
+    model_path = "Model/best_model_20251025_2039.joblib"
+    scaler_path = "Model/scaler.joblib"
+    encoder_path = "Model/label_encoder.joblib"
     
     # Charger les artefacts
     if not predictor.load_artifacts(model_path, scaler_path, encoder_path):
