@@ -1,0 +1,10 @@
+{
+  "best_model": "xgb_optimized",
+  "test_accuracy": 0.9981617647058824,
+  "test_balanced_accuracy": 0.9981981981981982,
+  "test_f1_score": 0.9981618199044138,
+  "test_precision": 0.9981719207019825,
+  "test_recall": 0.9981617647058824,
+  "feature_importance": "                  feature  importance\n3          jours_observed    0.002160\n2        nombre_personnes    0.007615\n4  ratio_depense_amperage    0.034140\n1     avg_depense_per_day    0.350921\n0    avg_amperage_per_day    0.605163",
+  "training_date": "2025-10-25 20:39:49"
+}
