@@ -7,6 +7,8 @@ import json
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import io
+import base64
 
 # Configuration de la page
 st.set_page_config(
@@ -25,7 +27,7 @@ st.markdown("""
         margin-bottom: 2rem;
     }
     .prediction-card {
-        background-color: grey;
+        background-color: #f0f2f6;
         padding: 20px;
         border-radius: 10px;
         border-left: 5px solid #1f77b4;
@@ -51,6 +53,20 @@ st.markdown("""
         color: white;
         padding: 15px;
         border-radius: 10px;
+        margin: 10px 0;
+    }
+    .success-box {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 5px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 5px;
+        padding: 15px;
         margin: 10px 0;
     }
 </style>
@@ -124,6 +140,47 @@ class ConsumptionPredictor:
         except Exception as e:
             st.error(f"Erreur lors de la prédiction: {e}")
             return None
+
+    def predict_batch(self, df):
+        """Faire des prédictions sur un lot de données"""
+        try:
+            # Vérifier les colonnes requises
+            required_columns = ['avg_amperage_per_day', 'avg_depense_per_day', 
+                              'nombre_personnes', 'jours_observed']
+            
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                return None, f"Colonnes manquantes: {missing_columns}"
+            
+            # Calculer le ratio si absent
+            if 'ratio_depense_amperage' not in df.columns:
+                df['ratio_depense_amperage'] = df['avg_depense_per_day'] / df['avg_amperage_per_day']
+                df['ratio_depense_amperage'] = df['ratio_depense_amperage'].replace([np.inf, -np.inf], 0)
+                df['ratio_depense_amperage'] = df['ratio_depense_amperage'].fillna(0)
+            
+            # Préparer les données
+            X = df[self.features].fillna(0)
+            X_scaled = self.scaler.transform(X)
+            
+            # Prédictions
+            predictions_encoded = self.model.predict(X_scaled)
+            probabilities = self.model.predict_proba(X_scaled)
+            
+            # Décoder les prédictions
+            predictions_decoded = self.label_encoder.inverse_transform(predictions_encoded)
+            
+            # Créer le DataFrame de résultats
+            results_df = df.copy()
+            results_df['niveau_conso_pred'] = predictions_decoded
+            results_df['prob_petit'] = probabilities[:, 0]
+            results_df['prob_moyen'] = probabilities[:, 1]
+            results_df['prob_grand'] = probabilities[:, 2]
+            results_df['confiance'] = np.max(probabilities, axis=1)
+            
+            return results_df, None
+            
+        except Exception as e:
+            return None, f"Erreur lors de la prédiction par lot: {e}"
 
 class ApplianceCalculator:
     def __init__(self):
@@ -595,9 +652,248 @@ def show_single_prediction(predictor):
 
 def show_batch_prediction(predictor):
     """Interface pour les prédictions par lot"""
+    
     st.header("📊 Prédiction par Lot")
-    st.info("Fonctionnalité en développement...")
-    st.warning("Cette fonctionnalité sera disponible prochainement!")
+    
+    st.markdown("""
+    ### 📋 Instructions
+    Téléchargez un fichier CSV contenant les données de plusieurs ménages. 
+    Le fichier doit contenir au minimum les colonnes suivantes:
+    
+    **Colonnes requises:**
+    - `avg_amperage_per_day` : Ampérage moyen quotidien
+    - `avg_depense_per_day` : Dépenses moyennes quotidiennes ($)
+    - `nombre_personnes` : Nombre de personnes dans le foyer
+    - `jours_observed` : Nombre de jours d'observation
+    
+    **Colonnes optionnelles:**
+    - `ratio_depense_amperage` : Ratio dépenses/ampérage (calculé automatiquement si absent)
+    - Autres colonnes d'identification (numero_compteur, nom_complet, etc.)
+    """)
+    
+    # Template de fichier CSV
+    st.subheader("📁 Template de Fichier CSV")
+    
+    # Créer un template exemple
+    template_data = {
+        'numero_compteur': ['#001', '#002', '#003'],
+        'nom_complet': ['Jean Dupont', 'Marie Laurent', 'Pierre Martin'],
+        'avg_amperage_per_day': [0.5, 2.0, 5.0],
+        'avg_depense_per_day': [0.1, 0.5, 1.2],
+        'nombre_personnes': [3, 4, 6],
+        'jours_observed': [30, 30, 30],
+        'zone': ['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves']
+    }
+    
+    template_df = pd.DataFrame(template_data)
+    
+    col_template1, col_template2 = st.columns(2)
+    
+    with col_template1:
+        st.dataframe(template_df, use_container_width=True)
+    
+    with col_template2:
+        # Télécharger le template
+        csv_template = template_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Télécharger le Template CSV",
+            data=csv_template,
+            file_name="template_menages.csv",
+            mime="text/csv",
+            help="Téléchargez ce template et remplissez-le avec vos données"
+        )
+    
+    # Upload de fichier
+    st.subheader("📤 Upload du Fichier de Données")
+    
+    uploaded_file = st.file_uploader(
+        "Choisir un fichier CSV",
+        type="csv",
+        help="Sélectionnez un fichier CSV contenant les données des ménages"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Lecture du fichier
+            df = pd.read_csv(uploaded_file)
+            
+            st.success(f"✅ Fichier chargé avec succès: {len(df)} enregistrements")
+            
+            # Aperçu des données
+            st.subheader("👀 Aperçu des Données Chargées")
+            st.dataframe(df.head(10), use_container_width=True)
+            
+            # Informations sur les données
+            col_info1, col_info2 = st.columns(2)
+            
+            with col_info1:
+                st.metric("Nombre d'enregistrements", len(df))
+                st.metric("Nombre de colonnes", len(df.columns))
+            
+            with col_info2:
+                # Vérifier les colonnes requises
+                required_columns = ['avg_amperage_per_day', 'avg_depense_per_day', 
+                                  'nombre_personnes', 'jours_observed']
+                
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                
+                if missing_columns:
+                    st.error(f"❌ Colonnes manquantes: {missing_columns}")
+                else:
+                    st.success("✅ Toutes les colonnes requises sont présentes")
+            
+            # Bouton de prédiction
+            if st.button("🚀 Lancer les Prédictions par Lot", type="primary", disabled=len(missing_columns) > 0):
+                with st.spinner("Traitement des prédictions en cours..."):
+                    # Prédictions par lot
+                    results_df, error = predictor.predict_batch(df)
+                    
+                    if error:
+                        st.error(f"Erreur: {error}")
+                    else:
+                        st.success(f"✅ Prédictions terminées pour {len(results_df)} ménages")
+                        
+                        # Affichage des résultats
+                        st.subheader("📈 Résultats des Prédictions")
+                        
+                        # Statistiques globales
+                        st.markdown("### 📊 Statistiques Globales")
+                        col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+                        
+                        with col_stats1:
+                            count_petit = (results_df['niveau_conso_pred'] == 'petit').sum()
+                            st.metric("Petits Consommateurs", count_petit)
+                        
+                        with col_stats2:
+                            count_moyen = (results_df['niveau_conso_pred'] == 'moyen').sum()
+                            st.metric("Moyens Consommateurs", count_moyen)
+                        
+                        with col_stats3:
+                            count_grand = (results_df['niveau_conso_pred'] == 'grand').sum()
+                            st.metric("Grands Consommateurs", count_grand)
+                        
+                        with col_stats4:
+                            avg_confidence = results_df['confiance'].mean()
+                            st.metric("Confiance Moyenne", f"{avg_confidence*100:.1f}%")
+                        
+                        # Visualisation de la distribution
+                        st.markdown("### 📊 Distribution des Prédictions")
+                        col_viz1, col_viz2 = st.columns(2)
+                        
+                        with col_viz1:
+                            # Camembert de distribution
+                            dist_data = results_df['niveau_conso_pred'].value_counts()
+                            fig_pie = px.pie(
+                                values=dist_data.values,
+                                names=dist_data.index,
+                                title="Répartition des Niveaux de Consommation",
+                                color=dist_data.index,
+                                color_discrete_map={
+                                    'petit': '#00cc96', 
+                                    'moyen': '#ffa500', 
+                                    'grand': '#ff4b4b'
+                                }
+                            )
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                        
+                        with col_viz2:
+                            # Histogramme de confiance
+                            fig_hist = px.histogram(
+                                results_df,
+                                x='confiance',
+                                nbins=20,
+                                title="Distribution de la Confiance des Prédictions",
+                                color_discrete_sequence=['#1f77b4']
+                            )
+                            st.plotly_chart(fig_hist, use_container_width=True)
+                        
+                        # Tableau des résultats détaillés
+                        st.markdown("### 📋 Détails des Prédictions")
+                        
+                        # Sélection des colonnes à afficher
+                        default_columns = ['numero_compteur', 'nom_complet', 'niveau_conso_pred', 
+                                         'confiance', 'avg_amperage_per_day', 'avg_depense_per_day']
+                        
+                        available_columns = [col for col in default_columns if col in results_df.columns]
+                        available_columns.extend(['prob_petit', 'prob_moyen', 'prob_grand'])
+                        
+                        display_df = results_df[available_columns]
+                        
+                        # Formater les pourcentages
+                        if 'confiance' in display_df.columns:
+                            display_df['confiance'] = (display_df['confiance'] * 100).round(1).astype(str) + '%'
+                        
+                        for col in ['prob_petit', 'prob_moyen', 'prob_grand']:
+                            if col in display_df.columns:
+                                display_df[col] = (display_df[col] * 100).round(1).astype(str) + '%'
+                        
+                        st.dataframe(display_df, use_container_width=True)
+                        
+                        # Téléchargement des résultats
+                        st.markdown("### 💾 Téléchargement des Résultats")
+                        
+                        # Options de format
+                        col_dl1, col_dl2 = st.columns(2)
+                        
+                        with col_dl1:
+                            # CSV
+                            csv_results = results_df.to_csv(index=False)
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+                            
+                            st.download_button(
+                                label="📥 Télécharger en CSV",
+                                data=csv_results,
+                                file_name=f"predictions_menages_{timestamp}.csv",
+                                mime="text/csv",
+                                help="Téléchargez tous les résultats au format CSV"
+                            )
+                        
+                        with col_dl2:
+                            # Excel
+                            excel_buffer = io.BytesIO()
+                            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                results_df.to_excel(writer, sheet_name='Predictions', index=False)
+                                
+                                # Ajouter un sheet avec les statistiques
+                                stats_data = {
+                                    'Statistique': ['Total ménages', 'Petits consommateurs', 
+                                                   'Moyens consommateurs', 'Grands consommateurs',
+                                                   'Confiance moyenne'],
+                                    'Valeur': [len(results_df), count_petit, count_moyen, 
+                                              count_grand, f"{avg_confidence*100:.1f}%"]
+                                }
+                                pd.DataFrame(stats_data).to_excel(writer, sheet_name='Statistiques', index=False)
+                            
+                            excel_buffer.seek(0)
+                            
+                            st.download_button(
+                                label="📥 Télécharger en Excel",
+                                data=excel_buffer,
+                                file_name=f"predictions_menages_{timestamp}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                help="Téléchargez tous les résultats au format Excel avec statistiques"
+                            )
+                        
+                        # Résumé exécutif
+                        with st.expander("📄 Résumé Exécutif"):
+                            st.markdown(f"""
+                            ### Résumé des Prédictions
+                            
+                            - **Total des ménages analysés** : {len(results_df)}
+                            - **Petits consommateurs** : {count_petit} ({count_petit/len(results_df)*100:.1f}%)
+                            - **Moyens consommateurs** : {count_moyen} ({count_moyen/len(results_df)*100:.1f}%)
+                            - **Grands consommateurs** : {count_grand} ({count_grand/len(results_df)*100:.1f}%)
+                            - **Confiance moyenne des prédictions** : {avg_confidence*100:.1f}%
+                            
+                            **Recommandations:**
+                            - Segmenter les stratégies énergétiques selon la distribution des consommateurs
+                            - Cibler les {count_grand} grands consommateurs pour des programmes d'efficacité énergétique
+                            - Maintenir les {count_petit} petits consommateurs avec des tarifs avantageux
+                            """)
+                        
+        except Exception as e:
+            st.error(f"❌ Erreur lors de la lecture du fichier: {e}")
+            st.info("Vérifiez que le fichier est un CSV valide et qu'il contient les colonnes requises.")
 
 def show_analytics():
     """Page d'analytics et de visualisations"""
