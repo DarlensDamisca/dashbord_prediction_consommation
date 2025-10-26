@@ -1,4 +1,3 @@
-#[file content begin]
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -66,26 +65,6 @@ st.markdown("""
         padding: 1rem;
         border-radius: 10px;
         border-left: 4px solid #2196f3;
-        margin: 1rem 0;
-    }
-    .alert-box {
-        background: linear-gradient(135deg, #ff7979, #eb4d4b);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
-        animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.02); }
-        100% { transform: scale(1); }
-    }
-    .impact-card {
-        background: linear-gradient(135deg, #74b9ff, #0984e3);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 15px;
         margin: 1rem 0;
     }
 </style>
@@ -161,19 +140,12 @@ class SigoraHouseholdClassifier:
         from sklearn.preprocessing import StandardScaler, LabelEncoder
 
         np.random.seed(42)
-        
-        # Génération de données plus réalistes avec coordonnées géographiques
-        n_samples = 1000
         demo_df = pd.DataFrame({
-            'avg_amperage_per_day': np.random.exponential(2.0, n_samples),
-            'avg_depense_per_day': np.random.exponential(0.05, n_samples),
-            'nombre_personnes': np.random.randint(2, 6, n_samples),
-            'jours_observed': np.random.randint(30, 365, n_samples),
-            'latitude': np.random.uniform(18.5, 20.0, n_samples),  # Couvre Haïti
-            'longitude': np.random.uniform(-74.5, -72.0, n_samples),
-            'zone': np.random.choice(['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves', 'Les Cayes'], n_samples)
+            'avg_amperage_per_day': np.random.exponential(2.0, 1000),
+            'avg_depense_per_day': np.random.exponential(0.05, 1000),
+            'nombre_personnes': np.random.randint(2, 6, 1000),
+            'jours_observed': np.random.randint(30, 365, 1000),
         })
-        
         demo_df['ratio_depense_amperage'] = demo_df['avg_depense_per_day'] / (demo_df['avg_amperage_per_day'] + 1e-9)
         demo_df['niveau_conso_pred'] = pd.cut(
             demo_df['avg_amperage_per_day'],
@@ -208,206 +180,9 @@ class SigoraHouseholdClassifier:
             st.error(f"Erreur prédiction: {e}")
             return "moyen", [0.33, 0.34, 0.33]
 
-    def detect_anomalies(self):
-        """Détecter les consommations anormales"""
-        if self.dataset is None:
-            return []
-        
-        anomalies = []
-        for idx, row in self.dataset.iterrows():
-            # Seuils d'alerte basés sur la distribution des données
-            if row['avg_amperage_per_day'] > 8.0:  # Seuil pour grand consommateur extrême
-                anomalies.append({
-                    'id': f"MEN{idx:04d}",
-                    'type': 'Consommation Excessive',
-                    'valeur': f"{row['avg_amperage_per_day']:.1f}A",
-                    'seuil': '8.0A',
-                    'zone': row.get('zone', 'Inconnue')
-                })
-            elif row['ratio_depense_amperage'] > 0.2:  # Ratio trop élevé
-                anomalies.append({
-                    'id': f"MEN{idx:04d}",
-                    'type': 'Inefficacité Économique',
-                    'valeur': f"Ratio {row['ratio_depense_amperage']:.3f}",
-                    'seuil': '0.200',
-                    'zone': row.get('zone', 'Inconnue')
-                })
-        
-        return anomalies
 
 # ==============================
-# FONCTIONS DES NOUVELLES FONCTIONNALITÉS
-# ==============================
-
-def show_interactive_map(clf):
-    """🎯 FONCTIONNALITÉ 1: Carte Interactive des Ménages"""
-    st.markdown('<h2 class="sub-header">🗺️ Carte Interactive des Consommations</h2>', unsafe_allow_html=True)
-    
-    if clf.dataset is None or 'latitude' not in clf.dataset.columns:
-        st.warning("📍 Données géographiques non disponibles en mode démo")
-        # Créer des données géographiques simulées
-        temp_df = clf.dataset.copy()
-        temp_df['latitude'] = np.random.uniform(18.5, 20.0, len(temp_df))
-        temp_df['longitude'] = np.random.uniform(-74.5, -72.0, len(temp_df))
-    else:
-        temp_df = clf.dataset
-    
-    # Sélecteur de type de visualisation
-    viz_type = st.radio("Type de visualisation:", ["Points Colorés", "Heatmap de Densité"])
-    
-    if viz_type == "Points Colorés":
-        fig = px.scatter_mapbox(temp_df, 
-                               lat="latitude", 
-                               lon="longitude",
-                               color="niveau_conso_pred",
-                               color_discrete_map={
-                                   'petit': '#4cd137',
-                                   'moyen': '#ff9f43', 
-                                   'grand': '#ff6b6b'
-                               },
-                               hover_data={
-                                   'avg_amperage_per_day': ':.2f',
-                                   'avg_depense_per_day': ':.3f',
-                                   'nombre_personnes': True,
-                                   'zone': True
-                               },
-                               zoom=7,
-                               height=600,
-                               title="Répartition Géographique des Ménages")
-    else:
-        # Heatmap
-        fig = px.density_mapbox(temp_df, 
-                               lat="latitude", 
-                               lon="longitude",
-                               z='avg_amperage_per_day',
-                               radius=20,
-                               zoom=7,
-                               height=600,
-                               title="Heatmap de la Consommation Électrique")
-    
-    fig.update_layout(mapbox_style="open-street-map")
-    fig.update_layout(margin={"r":0,"t":30,"l":0,"b":0})
-    st.plotly_chart(fig, use_container_width=True)
-
-def show_impact_simulator(clf):
-    """🎯 FONCTIONNALITÉ 2: Simulateur d'Impact Économique"""
-    st.markdown('<h2 class="sub-header">💰 Simulateur d\'Économies Potentielles</h2>', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown('<div class="info-box">💡 Choisissez un profil et des interventions pour voir leur impact</div>', unsafe_allow_html=True)
-        
-        menage_type = st.selectbox(
-            "👨‍👩‍👧‍👦 Profil du Ménage",
-            ["grand", "moyen", "petit"],
-            format_func=lambda x: {"grand": "🔴 Grand Consommateur", "moyen": "🟡 Consommation Moyenne", "petit": "🟢 Faible Consommation"}[x]
-        )
-        
-        interventions = st.multiselect(
-            "🛠️ Interventions Proposées",
-            ["Compteur intelligent", "Éclairage LED", "Électroménager efficace", "Sensibilisation", "Tarification incitative"],
-            default=["Compteur intelligent", "Éclairage LED"]
-        )
-    
-    with col2:
-        # Calcul des économies basé sur le profil et les interventions
-        economie_base = {"petit": 50, "moyen": 120, "grand": 300}[menage_type]
-        multiplicateur = 1.0
-        
-        if "Compteur intelligent" in interventions:
-            multiplicateur += 0.3
-        if "Éclairage LED" in interventions:
-            multiplicateur += 0.2
-        if "Électroménager efficace" in interventions:
-            multiplicateur += 0.4
-        if "Sensibilisation" in interventions:
-            multiplicateur += 0.1
-        if "Tarification incitative" in interventions:
-            multiplicateur += 0.25
-        
-        economie_totale = economie_base * multiplicateur
-        
-        st.markdown(f'''
-        <div class="impact-card">
-            <h3>📈 Impact Économique Annuel</h3>
-            <h1>${economie_totale:.0f}</h1>
-            <p>Économies potentielles par ménage</p>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        # Impact à l'échelle nationale
-        menages_impactes = st.slider("Nombre de ménages impactés", 100, 10000, 1000)
-        impact_national = economie_totale * menages_impactes
-        
-        st.metric("🌍 Impact National Annuel", f"${impact_national:,.0f}")
-
-def show_real_time_alerts(clf):
-    """🎯 FONCTIONNALITÉ 5: Alertes Temps Réel"""
-    st.markdown('<h2 class="sub-header">🚨 Alertes Consommation Anormale</h2>', unsafe_allow_html=True)
-    
-    if st.button("🔄 Scanner les Anomalies", use_container_width=True):
-        with st.spinner("🔍 Analyse des consommations en cours..."):
-            anomalies = clf.detect_anomalies()
-            
-            if not anomalies:
-                st.success("🎉 Aucune anomalie détectée - Toutes les consommations sont normales !")
-            else:
-                st.error(f"⚠️ {len(anomalies)} anomalies détectées")
-                
-                for anomaly in anomalies[:10]:  # Limiter à 10 affichages
-                    st.markdown(f'''
-                    <div class="alert-box">
-                        <strong>{anomaly['id']}</strong> - {anomaly['type']}<br>
-                        📊 Valeur: {anomaly['valeur']} | 🎯 Seuil: {anomaly['seuil']}<br>
-                        📍 Zone: {anomaly['zone']}
-                    </div>
-                    ''', unsafe_allow_html=True)
-                
-                if len(anomalies) > 10:
-                    st.info(f"💡 ... et {len(anomalies) - 10} autres anomalies. Contactez l'administrateur.")
-
-def show_3d_clusters(clf):
-    """🎯 FONCTIONNALITÉ 6: Visualisation 3D des Clusters"""
-    st.markdown('<h2 class="sub-header">🔮 Visualisation 3D des Profils de Consommation</h2>', unsafe_allow_html=True)
-    
-    if clf.dataset is None:
-        st.warning("Données non disponibles pour la visualisation 3D")
-        return
-    
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        st.markdown("### 🎛️ Paramètres 3D")
-        x_axis = st.selectbox("Axe X", ['avg_amperage_per_day', 'avg_depense_per_day', 'nombre_personnes', 'jours_observed'])
-        y_axis = st.selectbox("Axe Y", ['avg_depense_per_day', 'avg_amperage_per_day', 'nombre_personnes', 'jours_observed'])
-        z_axis = st.selectbox("Axe Z", ['nombre_personnes', 'avg_amperage_per_day', 'avg_depense_per_day', 'jours_observed'])
-        
-        st.markdown("---")
-        st.info("💡 **Conseil:** Faites tourner la vue 3D avec votre souris !")
-    
-    with col2:
-        fig = px.scatter_3d(clf.dataset,
-                           x=x_axis,
-                           y=y_axis, 
-                           z=z_axis,
-                           color='niveau_conso_pred',
-                           color_discrete_map={
-                               'petit': '#4cd137',
-                               'moyen': '#ff9f43',
-                               'grand': '#ff6b6b'
-                           },
-                           hover_data=['ratio_depense_amperage'],
-                           title="Clusters 3D des Profils de Consommation",
-                           height=600)
-        
-        fig.update_traces(marker=dict(size=5),
-                         selector=dict(mode='markers'))
-        
-        st.plotly_chart(fig, use_container_width=True)
-
-# ==============================
-# PAGES EXISTANTES
+# PAGES DE L’APPLICATION
 # ==============================
 
 def show_dashboard(clf):
@@ -417,15 +192,11 @@ def show_dashboard(clf):
         return
 
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("🏠 Ménages analysés", len(clf.dataset))
-    with col2:
-        acc = clf.performance_metrics.get("test_accuracy", 0.95) * 100 if clf.performance_metrics else 95.6
-        st.metric("🎯 Précision du modèle", f"{acc:.1f}%")
-    with col3:
-        st.metric("🔴 Grands consommateurs", (clf.dataset["niveau_conso_pred"]=="grand").sum())
-    with col4:
-        st.metric("📍 Zones couvertes", clf.dataset["zone"].nunique() if "zone" in clf.dataset else 4)
+    st.metric("🏠 Ménages analysés", len(clf.dataset))
+    acc = clf.performance_metrics.get("test_accuracy", 0.95) * 100 if clf.performance_metrics else 95.6
+    st.metric("🎯 Précision du modèle", f"{acc:.1f}%")
+    st.metric("🔴 Grands consommateurs", (clf.dataset["niveau_conso_pred"]=="grand").sum())
+    st.metric("📍 Zones couvertes", clf.dataset["zone"].nunique() if "zone" in clf.dataset else 4)
 
     col_left, col_right = st.columns(2)
     with col_left:
@@ -439,6 +210,7 @@ def show_dashboard(clf):
             zone_data = clf.dataset.groupby("zone")["niveau_conso_pred"].value_counts().unstack().fillna(0)
             fig = px.bar(zone_data, barmode="stack", color_discrete_map={'petit':'#4cd137','moyen':'#ff9f43','grand':'#ff6b6b'})
             st.plotly_chart(fig, use_container_width=True)
+
 
 def show_prediction(clf):
     st.markdown('<h2 class="sub-header">🔮 Prédiction en Temps Réel</h2>', unsafe_allow_html=True)
@@ -470,6 +242,7 @@ def show_prediction(clf):
         fig.update_layout(title="Probabilités de classification", yaxis=dict(tickformat=".0%", range=[0,1]))
         st.plotly_chart(fig, use_container_width=True)
 
+
 def show_new_data_prediction(clf):
     st.markdown('<h2 class="sub-header">📁 Prédictions sur Nouvelles Données</h2>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Importer un fichier CSV", type=["csv"])
@@ -492,6 +265,7 @@ def show_new_data_prediction(clf):
         csv = new_data.to_csv(index=False).encode('utf-8')
         st.download_button("💾 Télécharger les résultats", csv, "predictions_sigora.csv", "text/csv")
 
+
 # ==============================
 # APPLICATION PRINCIPALE
 # ==============================
@@ -501,12 +275,8 @@ def main():
 
     page = st.sidebar.radio("Navigation", [
         "🏠 Tableau de Bord",
-        "🔮 Prédiction Temps Réel", 
-        "📁 Nouvelles Données",
-        "🗺️ Carte Interactive",
-        "💰 Simulateur d'Impact",
-        "🚨 Alertes Temps Réel",
-        "🔮 Visualisation 3D"
+        "🔮 Prédiction Temps Réel",
+        "📁 Nouvelles Données"
     ])
 
     if page == "🏠 Tableau de Bord":
@@ -515,15 +285,7 @@ def main():
         show_prediction(clf)
     elif page == "📁 Nouvelles Données":
         show_new_data_prediction(clf)
-    elif page == "🗺️ Carte Interactive":
-        show_interactive_map(clf)
-    elif page == "💰 Simulateur d'Impact":
-        show_impact_simulator(clf)
-    elif page == "🚨 Alertes Temps Réel":
-        show_real_time_alerts(clf)
-    elif page == "🔮 Visualisation 3D":
-        show_3d_clusters(clf)
+
 
 if __name__ == "__main__":
     main()
-[file content end]
