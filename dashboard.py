@@ -72,6 +72,12 @@ st.markdown("""
         color: #666;
         margin-top: 0.5rem;
     }
+    .currency-note {
+        font-size: 0.9rem;
+        color: #d63031;
+        font-style: italic;
+        margin-top: 0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,9 +151,10 @@ class SigoraHouseholdClassifier:
         from sklearn.preprocessing import StandardScaler, LabelEncoder
 
         np.random.seed(42)
+        # MAINTENANT EN GOURDES HAÏTIENNES (HTG)
         demo_df = pd.DataFrame({
             'avg_amperage_per_day': np.random.exponential(2.0, 1000),
-            'avg_depense_per_day': np.random.exponential(0.05, 1000),
+            'avg_depense_per_day': np.random.exponential(7.5, 1000),  # 7.5 HTG au lieu de 0.05$
             'nombre_personnes': np.random.randint(2, 6, 1000),
             'jours_observed': np.random.randint(30, 365, 1000),
             'zone': np.random.choice(['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves', 'Les Cayes'], 1000)
@@ -276,78 +283,119 @@ def show_prediction(clf):
     st.markdown('<h2 class="sub-header">🔮 Prédiction en Temps Réel</h2>', unsafe_allow_html=True)
     
     # Section d'information pour l'utilisateur
-    with st.expander("ℹ️ Comment utiliser cette prédiction", expanded=True):
+    with st.expander("ℹ️ COMMENT FONCTIONNE L'ANALYSE ?", expanded=True):
         st.markdown("""
-        **Guide d'interprétation :**
-        - **🟢 Faible consommation** : Ménage économique, consommation inférieure à 0.5A
-        - **🟡 Consommation moyenne** : Usage modéré, entre 0.5A et 3A  
-        - **🔴 Grand consommateur** : Forte consommation, supérieure à 3A
+        ### 🎯 Comment interpréter les résultats ?
         
-        **Facteurs influençant la prédiction :**
-        - Ampérage moyen : intensité du courant utilisée
-        - Dépense quotidienne : budget énergie
-        - Nombre de personnes : taille du ménage
-        - Période d'observation : fiabilité des données
+        **Le modèle analyse 5 facteurs clés :**
+        1. **Ampérage moyen** → Combien d'électricité vous consommez
+        2. **Dépense moyenne** → Combien vous payez pour cette électricité  
+        3. **Nombre de personnes** → Taille de votre famille
+        4. **Jours observés** → Fiabilité des données
+        5. **Ratio dépense/ampérage** → Efficacité économique
+        
+        ### 📈 Le graphique de confiance vous montre :
+        - **Hauteur des barres** → Niveau de certitude du modèle
+        - **Plus la barre est haute** → Plus le modèle est sûr
+        - **Idéal** : Une barre haute (>70%) et les deux autres basses
         """)
     
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("#### 📊 Paramètres du Ménage")
+        
         avg_amperage = st.slider(
             "Ampérage moyen par jour (A)", 
             0.0, 50.0, 2.5,
-            help="Intensité électrique moyenne consommée quotidiennement"
+            help="""INTENSITÉ ÉLECTRIQUE :
+            • < 0.5A → Très faible (éclairage seulement)
+            • 0.5-3A → Normal (éclairage + TV + petit frigo)
+            • > 3A → Élevé (gros appareils électriques)"""
         )
+        
+        # MAINTENANT EN GOURDES HAÏTIENNES (HTG)
         avg_depense = st.slider(
-            "Dépense moyenne par jour ($)", 
-            0.0, 2.0, 0.15,
-            help="Budget quotidien alloué à l'énergie électrique"
+            "Dépense moyenne par jour (HTG)", 
+            0.0, 300.0, 22.5,  # 300 HTG max au lieu de 2$
+            help="""BUDGET ÉNERGIE JOURNALIER EN GOURDES :
+            • 0-7 HTG → Très économique
+            • 7-22 HTG → Dépense moyenne  
+            • 22-300 HTG → Budget important
+            BASÉ SUR LA RÉALITÉ HAÏTIENNE"""
         )
+        
         nb_personnes = st.number_input(
             "Nombre de personnes dans le ménage", 
             1, 10, 4,
-            help="Taille du foyer familial"
+            help="Plus il y a de personnes, plus la consommation tend à être élevée"
         )
+        
     with col2:
         st.markdown("#### 📈 Données d'Observation")
         jours = st.slider(
             "Jours d'observation", 
             1, 365, 90,
-            help="Durée de collecte des données (fiabilité)"
-        )
-        ratio = st.slider(
-            "Ratio dépense/ampérage", 
-            0.0, 0.5, 0.06,
-            help="Efficacité économique : dépense par unité d'ampérage"
+            help="""FIABILITÉ DES DONNÉES :
+            • < 30 jours → Données peu fiables
+            • 30-90 jours → Fiabilité moyenne
+            • > 90 jours → Données très fiables"""
         )
         
-        # Afficher les valeurs actuelles
+        # Ratio maintenant en HTG par Ampère
+        ratio = st.slider(
+            "Ratio dépense/ampérage (HTG par Ampère)", 
+            0.0, 150.0, 9.0,  # Ajusté pour les gourdes
+            help="""EFFICACITÉ ÉCONOMIQUE :
+            • < 7 HTG/A → Bon rapport qualité-prix
+            • 7-22 HTG/A → Ratio normal  
+            • > 22 HTG/A → Coût élevé par unité d'énergie"""
+        )
+        
+        # Afficher les valeurs avec interprétation
         st.markdown("---")
-        st.markdown("**Valeurs saisies :**")
-        st.write(f"- Ampérage : {avg_amperage} A")
-        st.write(f"- Dépense : ${avg_depense:.2f}")
-        st.write(f"- Personnes : {nb_personnes}")
-        st.write(f"- Jours observés : {jours}")
-        st.write(f"- Ratio : {ratio:.3f}")
+        st.markdown("**📋 VOTRE PROFIL ACTUEL :**")
+        
+        # Interprétation de l'ampérage
+        if avg_amperage < 0.5:
+            amp_interpretation = "🟢 TRÈS FAIBLE"
+        elif avg_amperage < 3:
+            amp_interpretation = "🟡 NORMAL"
+        else:
+            amp_interpretation = "🔴 ÉLEVÉ"
+            
+        # Interprétation de la dépense EN HTG
+        if avg_depense < 7:
+            dep_interpretation = "🟢 ÉCONOMIQUE"
+        elif avg_depense < 22:
+            dep_interpretation = "🟡 MOYENNE"
+        else:
+            dep_interpretation = "🔴 IMPORTANTE"
+        
+        st.write(f"- ⚡ Ampérage : {avg_amperage} A → {amp_interpretation}")
+        st.write(f"- 💰 Dépense : {avg_depense:.0f} HTG → {dep_interpretation}")
+        st.write(f"- 👥 Personnes : {nb_personnes}")
+        st.write(f"- 📅 Jours observés : {jours}")
+        st.write(f"- 📊 Ratio : {ratio:.1f} HTG/A")
 
-    if st.button("🎯 Analyser ce Ménage", use_container_width=True):
+    if st.button("🎯 ANALYSER CE MÉNAGE", use_container_width=True):
         pred, prob = clf.predict_household([avg_amperage, avg_depense, nb_personnes, jours, ratio])
         
         # Section de résultats détaillés
         st.markdown("---")
-        st.markdown("## 📋 Résultats de l'Analyse")
+        st.markdown("## 📋 RÉSULTATS DE L'ANALYSE")
         
         # Affichage visuel de la prédiction
         if pred == "grand":
             st.markdown('<div class="prediction-high"><h1>🔴 GRAND CONSOMMATEUR</h1></div>', unsafe_allow_html=True)
             st.markdown("""
             <div class="info-box">
-            <h4>🎯 Interprétation :</h4>
-            <p>Ce ménage présente une consommation électrique élevée. Recommandations :</p>
+            <h4>🎯 QUE SIGNIFIE CE RÉSULTAT ?</h4>
+            <p><strong>Votre ménage consomme plus d'électricité que 80% des foyers haïtiens</strong></p>
+            <p>📈 <strong>Caractéristiques typiques :</strong></p>
             <ul>
-                <li>✅ Vérifier l'efficacité des appareils électriques</li>
-                <li>✅ Envisager des équipements énergétiquement efficaces</li>
-                <li>✅ Analyser les habitudes de consommation</li>
+                <li>• Ampérage supérieur à 3A</li>
+                <li>• Possession de gros appareils électriques</li>
+                <li>• Consommation régulière et importante</li>
             </ul>
             </div>
             """, unsafe_allow_html=True)
@@ -355,79 +403,172 @@ def show_prediction(clf):
             st.markdown('<div class="prediction-medium"><h1>🟡 CONSOMMATION MOYENNE</h1></div>', unsafe_allow_html=True)
             st.markdown("""
             <div class="info-box">
-            <h4>🎯 Interprétation :</h4>
-            <p>Consommation typique pour un ménage haïtien. Situation stable.</p>
+            <h4>🎯 QUE SIGNIFIE CE RÉSULTAT ?</h4>
+            <p><strong>Votre consommation est dans la moyenne des ménages haïtiens</strong></p>
+            <p>📊 <strong>Profil typique :</strong></p>
+            <ul>
+                <li>• Ampérage entre 0.5A et 3A</li>
+                <li>• Usage modéré de l'électricité</li>
+                <li>• Équipements standards (éclairage, TV, petit frigo)</li>
+            </ul>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown('<div class="prediction-low"><h1>🟢 FAIBLE CONSOMMATION</h1></div>', unsafe_allow_html=True)
             st.markdown("""
             <div class="info-box">
-            <h4>🎯 Interprétation :</h4>
-            <p>Consommation économique. Bonne gestion énergétique.</p>
+            <h4>🎯 QUE SIGNIFIE CE RÉSULTAT ?</h4>
+            <p><strong>Votre ménage est économique en consommation électrique</strong></p>
+            <p>🌱 <strong>Caractéristiques :</strong></p>
+            <ul>
+                <li>• Ampérage inférieur à 0.5A</li>
+                <li>• Usage limité à l'éclairage essentiel</li>
+                <li>• Faible budget énergie</li>
+            </ul>
             </div>
             """, unsafe_allow_html=True)
         
-        # Graphique de probabilités avec explications
-        col_prob, col_explain = st.columns([2, 1])
+        # Graphique de probabilités AVEC EXPLICATIONS DÉTAILLÉES
+        st.markdown("---")
+        st.markdown("## 📊 COMMENT LIRE CE GRAPHIQUE ?")
         
-        with col_prob:
+        col_explain, col_graph = st.columns([1, 2])
+        
+        with col_explain:
+            st.markdown("""
+            ### 🎯 LE GRAPHIQUE DE CONFIANCE
+            
+            **Il répond à la question :**  
+            *"À quel point le modèle est-il sûr de sa prédiction ?"*
+            
+            **Comment interpréter :**
+            - 📊 **Hauteur des barres** → Niveau de certitude
+            - 🟢 **Barre verte** → Probabilité "Faible consommation"
+            - 🟡 **Barre jaune** → Probabilité "Consommation moyenne"  
+            - 🔴 **Barre rouge** → Probabilité "Grand consommateur"
+            
+            **EXEMPLE IDÉAL :**
+            - Une barre à 85% 
+            - Les deux autres à 10% et 5%
+            → Le modèle est TRÈS CONFiant !
+            """)
+            
+            max_prob = max(prob)
+            pred_index = np.argmax(prob)
+            confidence_levels = ['Faible', 'Moyenne', 'Élevée']
+            
+            st.markdown(f"### 📈 VOTRE RÉSULTAT :")
+            st.markdown(f"**Catégorie prédite :** `{confidence_levels[pred_index]}`")
+            st.markdown(f"**Niveau de confiance :** `{max_prob:.1%}`")
+            
+            if max_prob > 0.8:
+                st.success("**✅ TRÈS FIABLE** - Le modèle est très certain")
+            elif max_prob > 0.6:
+                st.info("**ℹ️ FIABLE** - Bon niveau de confiance")
+            else:
+                st.warning("**⚠️ INCERTAIN** - Plusieurs catégories possibles")
+        
+        with col_graph:
             fig = go.Figure(go.Bar(
                 x=['Faible','Moyenne','Élevée'], 
                 y=prob,
                 marker_color=['#4cd137','#ff9f43','#ff6b6b'],
                 text=[f"{p:.1%}" for p in prob], 
-                textposition='auto'
+                textposition='auto',
+                hovertemplate="<b>%{x}</b><br>Probabilité: %{y:.1%}<extra></extra>"
             ))
             fig.update_layout(
-                title="📊 Niveaux de Confiance de la Prédiction",
-                yaxis=dict(tickformat=".0%", range=[0,1]),
+                title="📊 NIVEAUX DE CONFIANCE DE LA PRÉDICTION",
+                yaxis=dict(
+                    tickformat=".0%", 
+                    range=[0,1],
+                    title="Probabilité (0% = incertain → 100% = certain)"
+                ),
                 xaxis_title="Catégories de Consommation",
-                yaxis_title="Probabilité"
+                height=400
             )
+            
+            # Ajouter une ligne pour le seuil de confiance
+            fig.add_hline(y=0.7, line_dash="dash", line_color="red", 
+                         annotation_text="Seuil de bonne confiance (70%)")
+            
             st.plotly_chart(fig, use_container_width=True)
-        
-        with col_explain:
-            st.markdown("#### 🎯 Fiabilité de la Prédiction")
-            max_prob = max(prob)
-            if max_prob > 0.8:
-                st.success("**Très fiable** ✅")
-                st.write("La prédiction est très certaine")
-            elif max_prob > 0.6:
-                st.info("**Fiable** ℹ️")
-                st.write("Bon niveau de confiance")
-            else:
-                st.warning("**Incertaine** ⚠️")
-                st.write("Plusieurs catégories possibles")
-            
-            st.metric("Confiance maximale", f"{max_prob:.1%}")
-            
-            # Indice de fiabilité globale
-            confidence_score = sum(p**2 for p in prob)  # Indice de Gini
-            st.metric("Indice de certitude", f"{confidence_score:.1%}")
 
         # Section d'analyse des facteurs
         st.markdown("---")
-        st.markdown("#### 🔍 Analyse des Facteurs Influents")
+        st.markdown("## 🔍 COMMENT VOS DONNÉES ONT ÉTÉ ANALYSÉES")
+        
+        st.markdown("""
+        ### 📋 FACTEURS EXAMINÉS PAR LE MODÈLE :
+        """)
         
         factors = {
-            "Ampérage": "Élevé" if avg_amperage > 3 else "Modéré" if avg_amperage > 0.5 else "Faible",
-            "Dépense": "Élevée" if avg_depense > 0.1 else "Modérée" if avg_depense > 0.05 else "Faible",
-            "Taille ménage": "Grand" if nb_personnes > 5 else "Moyen" if nb_personnes > 3 else "Petit",
-            "Période observation": "Longue" if jours > 180 else "Moyenne" if jours > 60 else "Courte"
+            "Ampérage": {
+                "value": avg_amperage,
+                "level": "Élevé" if avg_amperage > 3 else "Modéré" if avg_amperage > 0.5 else "Faible",
+                "impact": "FORT" if avg_amperage > 3 else "MOYEN" if avg_amperage > 0.5 else "FAIBLE"
+            },
+            "Dépense (HTG)": {
+                "value": f"{avg_depense:.0f} HTG",
+                "level": "Élevée" if avg_depense > 22 else "Modérée" if avg_depense > 7 else "Faible",
+                "impact": "FORT" if avg_depense > 50 else "MOYEN" if avg_depense > 7 else "FAIBLE"
+            },
+            "Taille ménage": {
+                "value": nb_personnes,
+                "level": "Grand" if nb_personnes > 5 else "Moyen" if nb_personnes > 3 else "Petit",
+                "impact": "MOYEN"
+            },
+            "Période observation": {
+                "value": f"{jours} jours",
+                "level": "Longue" if jours > 180 else "Moyenne" if jours > 60 else "Courte",
+                "impact": "FAIBLE" if jours < 30 else "MOYEN"
+            }
         }
         
-        for factor, level in factors.items():
-            col_fact, col_level = st.columns([2, 1])
+        for factor, data in factors.items():
+            col_fact, col_level, col_impact = st.columns([2, 1, 1])
             with col_fact:
-                st.write(f"**{factor}**")
+                st.write(f"**{factor}** : {data['value']}")
             with col_level:
-                if "Élevé" in level or "Grand" in level:
-                    st.error(level)
-                elif "Moyen" in level or "Modéré" in level:
-                    st.warning(level)
+                if "Élevé" in data['level'] or "Grand" in data['level']:
+                    st.error(data['level'])
+                elif "Moyen" in data['level'] or "Modéré" in data['level']:
+                    st.warning(data['level'])
                 else:
-                    st.success(level)
+                    st.success(data['level'])
+            with col_impact:
+                if data['impact'] == "FORT":
+                    st.error(f"Impact: {data['impact']}")
+                elif data['impact'] == "MOYEN":
+                    st.warning(f"Impact: {data['impact']}")
+                else:
+                    st.info(f"Impact: {data['impact']}")
+
+        # EXPLICATION : Échelle en gourdes haïtiennes
+        st.markdown("---")
+        with st.expander("💡 ÉCHELLE EN GOURDES HAÏTIENNES (HTG)"):
+            st.markdown("""
+            ### 📊 CONTEXTE HAÏTIEN - RÉALITÉS ÉCONOMIQUES
+            
+            **Échelle de référence en GOURDES :**
+            
+            • 🏠 **Dépense très économique** : 0-7 HTG/jour
+               *→ Éclairage basique seulement*
+               
+            • 💡 **Dépense moyenne** : 7-22 HTG/jour  
+               *→ Éclairage + TV + petit frigo*
+               
+            • ⚡ **Dépense importante** : 22-100 HTG/jour
+               *→ Appareils électriques supplémentaires*
+               
+            • 🏢 **Dépense très élevée** : 100-300 HTG/jour
+               *→ Cas exceptionnels (entreprises, grandes familles)*
+            
+            **💱 Conversion approximative :**
+            - 7 HTG ≈ 0.05 USD
+            - 22 HTG ≈ 0.15 USD  
+            - 150 HTG ≈ 1.00 USD
+            """)
 
 def show_new_data_prediction(clf):
     st.markdown('<h2 class="sub-header">📁 Prédictions sur Nouvelles Données</h2>', unsafe_allow_html=True)
@@ -438,11 +579,12 @@ def show_new_data_prediction(clf):
     <p>Votre fichier doit contenir les colonnes suivantes :</p>
     <ul>
         <li><code>avg_amperage_per_day</code> : Ampérage moyen quotidien (A)</li>
-        <li><code>avg_depense_per_day</code> : Dépense moyenne quotidienne ($)</li>
+        <li><code>avg_depense_per_day</code> : Dépense moyenne quotidienne (HTG) ← EN GOURDES</li>
         <li><code>nombre_personnes</code> : Nombre de personnes dans le ménage</li>
         <li><code>jours_observed</code> : Nombre de jours d'observation</li>
-        <li><code>ratio_depense_amperage</code> : Ratio dépense/ampérage</li>
+        <li><code>ratio_depense_amperage</code> : Ratio dépense/ampérage (HTG par Ampère)</li>
     </ul>
+    <p class="currency-note">💡 <strong>Note :</strong> Toutes les dépenses doivent être en Gourdes Haïtiennes (HTG)</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -533,17 +675,17 @@ def show_help_guide():
     
     with col2:
         st.markdown("""
-        ### 📈 Seuils de référence
+        ### 📈 Seuils de référence EN GOURDES
         
         **Consommation typique en Haïti :**
-        - **Ménage modeste** : 0.5-1.5A
-        - **Ménage moyen** : 1.5-3A
-        - **Ménage aisé** : 3A et plus
+        - **Ménage modeste** : 0.5-1.5A (7-15 HTG/jour)
+        - **Ménage moyen** : 1.5-3A (15-22 HTG/jour)
+        - **Ménage aisé** : 3A et plus (22+ HTG/jour)
         
-        **Dépenses énergétiques :**
-        - **Économique** : < $0.05/jour
-        - **Standard** : $0.05-$0.15/jour
-        - **Élevée** : > $0.15/jour
+        **Dépenses énergétiques en HTG :**
+        - **Économique** : < 7 HTG/jour
+        - **Standard** : 7-22 HTG/jour
+        - **Élevée** : > 22 HTG/jour
         
         ### ✅ Quand la prédiction est-elle "bonne" ?
         
@@ -576,7 +718,7 @@ def show_help_guide():
         > Intensité du courant électrique consommée en moyenne chaque jour
         
         **Ratio dépense/ampérage :**
-        > Efficacité économique : coût par unité d'énergie consommée
+        > Efficacité économique : coût par unité d'énergie consommée (HTG/A)
         
         **Grand consommateur :**
         > Ménage avec une consommation électrique supérieure à 3A par jour
@@ -590,8 +732,8 @@ def show_help_guide():
         **Indice de certitude :**
         > Mesure mathématique de la confiance globale du modèle
         
-        **Précision du modèle :**
-        > Pourcentage de prédictions correctes sur les données de test
+        **HTG :**
+        > Gourde Haïtienne - Devise nationale d'Haïti
         """)
 
 # ==============================
@@ -611,6 +753,8 @@ def main():
         - Machine Learning : Random Forest
         - Interface : Streamlit
         - Visualisation : Plotly
+        
+        **💱 Devise :** Gourdes Haïtiennes (HTG)
         """)
     
     clf = SigoraHouseholdClassifier()
@@ -639,6 +783,7 @@ def main():
     📧 contact@sigora.com  
     🌐 www.sigora.com
     """)
+    st.sidebar.markdown('<p class="currency-note">💵 Toutes les valeurs en Gourdes Haïtiennes (HTG)</p>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
