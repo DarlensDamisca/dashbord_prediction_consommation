@@ -202,260 +202,7 @@ class ApplianceCalculator:
             'total_energy_wh': total_energy_wh
         }
 
-def main():
-    # En-tête de l'application
-    st.markdown('<h1 class="main-header">⚡ Classification des Ménages Haïtiens</h1>', 
-                unsafe_allow_html=True)
-    
-    st.markdown("""
-    Cette application utilise un modèle de machine learning pour classifier les ménages haïtiens 
-    selon leur niveau de consommation énergétique (faible, moyen, élevé).
-    """)
-    
-    # Initialisation des classes
-    predictor = ConsumptionPredictor()
-    appliance_calc = ApplianceCalculator()
-    
-    # Sidebar pour la navigation
-    st.sidebar.title("Navigation")
-    app_mode = st.sidebar.selectbox(
-        "Choisir le mode",
-        [
-            "🔮 Prédiction Simple", 
-            "🏠 Prédiction par Appareils", 
-            "📊 Batch Prediction", 
-            "📈 Analytics", 
-            "ℹ️ A propos"
-        ]
-    )
-    
-    # Chargement des artefacts (à adapter selon votre chemin)
-    with st.sidebar.expander("Configuration du Modèle"):
-        st.info("""
-        Le modèle chargé est XGBoost optimisé avec:
-        - F1-Score: 99.8%
-        - Balanced Accuracy: 99.8%
-        """)
-    
-    # Chemin vers vos artefacts (à modifier selon votre structure)
-    model_path = "Model/best_model_20251025_2039.joblib"
-    scaler_path = "Model/scaler.joblib"
-    encoder_path = "Model/label_encoder.joblib"
-    
-    # Charger les artefacts
-    if not predictor.load_artifacts(model_path, scaler_path, encoder_path):
-        st.error("Impossible de charger le modèle. Vérifiez les chemins des fichiers.")
-        return
-    
-    if app_mode == "🔮 Prédiction Simple":
-        show_single_prediction(predictor)
-    elif app_mode == "🏠 Prédiction par Appareils":
-        show_appliance_prediction(predictor, appliance_calc)
-    elif app_mode == "📊 Batch Prediction":
-        show_batch_prediction(predictor)
-    elif app_mode == "📈 Analytics":
-        show_analytics()
-    else:
-        show_about()
-
-def show_single_prediction(predictor):
-    """Interface pour la prédiction simple"""
-    
-    st.header("🔮 Prédiction Simple de Consommation")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Paramètres du Ménage")
-        
-        # Formulaire de saisie
-        avg_amperage = st.number_input(
-            "Ampérage moyen quotidien (A)",
-            min_value=0.0,
-            max_value=100.0,
-            value=1.5,
-            step=0.1,
-            help="Consommation électrique moyenne par jour"
-        )
-        
-        avg_depense = st.number_input(
-            "Dépenses moyennes quotidiennes ($)",
-            min_value=0.0,
-            max_value=100.0,
-            value=0.5,
-            step=0.01,
-            help="Dépenses moyennes en électricité par jour"
-        )
-        
-        nombre_personnes = st.number_input(
-            "Nombre de personnes dans le foyer",
-            min_value=1,
-            max_value=20,
-            value=4,
-            step=1
-        )
-        
-        jours_observed = st.number_input(
-            "Nombre de jours d'observation",
-            min_value=1,
-            max_value=365,
-            value=30,
-            step=1,
-            help="Nombre de jours sur lesquels les données sont collectées"
-        )
-    
-    with col2:
-        st.subheader("Informations Complémentaires")
-        
-        zone = st.selectbox(
-            "Zone géographique",
-            ["Zone Inconnue", "Môle Saint-Nicolas", "Jean Rabel", "Bombardopolis", "Mare-Rouge"]
-        )
-        
-        type_maison = st.selectbox(
-            "Type de maison",
-            ["Rezidansyel", "Apartment", "Kay modèn", "Kay tradisyonèl"]
-        )
-        
-        # Calcul automatique du ratio
-        if avg_amperage > 0:
-            ratio = avg_depense / avg_amperage
-        else:
-            ratio = 0
-        
-        st.metric("Ratio Dépenses/Ampérage", f"{ratio:.4f}")
-        
-        # Bouton de prédiction
-        if st.button("🔍 Prédire le Niveau de Consommation", type="primary"):
-            # Préparation des données d'entrée
-            input_data = {
-                'avg_amperage_per_day': avg_amperage,
-                'avg_depense_per_day': avg_depense,
-                'nombre_personnes': nombre_personnes,
-                'jours_observed': jours_observed,
-                'ratio_depense_amperage': ratio
-            }
-            
-            # Prédiction
-            result = predictor.predict(input_data)
-            
-            if result:
-                display_prediction_result(result, input_data)
-
-def show_appliance_prediction(predictor, appliance_calc):
-    """Interface pour la prédiction basée sur les appareils"""
-    
-    st.header("🏠 Prédiction par Appareils Électroménagers")
-    
-    st.markdown("""
-    ### 📋 Instructions
-    Sélectionnez les appareils électriques utilisés dans votre ménage et leur quantité.
-    Le système calculera automatiquement la consommation estimée et prédira le niveau de consommation.
-    """)
-    
-    # Organisation des appareils par catégorie
-    categories = {}
-    for appliance, data in appliance_calc.appliance_db.items():
-        category = data['category']
-        if category not in categories:
-            categories[category] = []
-        categories[category].append(appliance)
-    
-    # Interface de sélection des appareils
-    selected_appliances = {}
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🛋️ Éclairage et Électronique")
-        
-        for category in ['Éclairage', 'Électronique']:
-            if category in categories:
-                st.markdown(f"**{category}**")
-                for appliance in categories[category]:
-                    quantity = st.number_input(
-                        f"{appliance}",
-                        min_value=0,
-                        max_value=10,
-                        value=0,
-                        key=f"app_{appliance}"
-                    )
-                    selected_appliances[appliance] = quantity
-                st.markdown("---")
-    
-    with col2:
-        st.subheader("🍳 Électroménager et Cuisine")
-        
-        for category in ['Électroménager', 'Cuisine', 'Énergie', 'Divers']:
-            if category in categories:
-                st.markdown(f"**{category}**")
-                for appliance in categories[category]:
-                    quantity = st.number_input(
-                        f"{appliance}",
-                        min_value=0,
-                        max_value=10,
-                        value=0,
-                        key=f"app_{appliance}"
-                    )
-                    selected_appliances[appliance] = quantity
-                st.markdown("---")
-    
-    # Informations supplémentaires
-    st.subheader("📊 Informations du Ménage")
-    col_info1, col_info2, col_info3 = st.columns(3)
-    
-    with col_info1:
-        nombre_personnes = st.number_input(
-            "Nombre de personnes dans le foyer",
-            min_value=1,
-            max_value=20,
-            value=4,
-            step=1,
-            key="app_nb_pers"
-        )
-    
-    with col_info2:
-        jours_observed = st.number_input(
-            "Nombre de jours d'observation",
-            min_value=1,
-            max_value=365,
-            value=30,
-            step=1,
-            key="app_jours"
-        )
-    
-    with col_info3:
-        zone = st.selectbox(
-            "Zone géographique",
-            ["Zone Inconnue", "Môle Saint-Nicolas", "Jean Rabel", "Bombardopolis", "Mare-Rouge"],
-            key="app_zone"
-        )
-    
-    # Bouton de calcul et prédiction
-    if st.button("⚡ Calculer et Prédire la Consommation", type="primary"):
-        with st.spinner("Calcul de la consommation..."):
-            # Calcul de la consommation
-            consumption_data = appliance_calc.calculate_consumption(selected_appliances)
-            
-            # Affichage des résultats du calcul
-            display_consumption_calculation(consumption_data, selected_appliances)
-            
-            # Préparation pour la prédiction
-            input_data = {
-                'avg_amperage_per_day': consumption_data['estimated_amperage'],
-                'avg_depense_per_day': consumption_data['estimated_cost'],
-                'nombre_personnes': nombre_personnes,
-                'jours_observed': jours_observed,
-                'ratio_depense_amperage': consumption_data['estimated_cost'] / consumption_data['estimated_amperage'] if consumption_data['estimated_amperage'] > 0 else 0
-            }
-            
-            # Prédiction
-            result = predictor.predict(input_data)
-            
-            if result:
-                display_prediction_result(result, input_data)
-
-def display_consumption_calculation(consumption_data, selected_appliances):
+def display_consumption_calculation(consumption_data, selected_appliances, appliance_calc):
     """Afficher les résultats du calcul de consommation"""
     
     st.header("📊 Résultats du Calcul de Consommation")
@@ -657,24 +404,302 @@ def display_prediction_result(result, input_data):
     for rec in recommendations.get(prediction, []):
         st.write(rec)
 
-# Les fonctions show_batch_prediction, show_analytics, et show_about restent identiques
-# (Je les ai conservées mais raccourcies pour la lisibilité)
+def show_appliance_prediction(predictor, appliance_calc):
+    """Interface pour la prédiction basée sur les appareils"""
+    
+    st.header("🏠 Prédiction par Appareils Électroménagers")
+    
+    st.markdown("""
+    ### 📋 Instructions
+    Sélectionnez les appareils électriques utilisés dans votre ménage et leur quantité.
+    Le système calculera automatiquement la consommation estimée et prédira le niveau de consommation.
+    """)
+    
+    # Organisation des appareils par catégorie
+    categories = {}
+    for appliance, data in appliance_calc.appliance_db.items():
+        category = data['category']
+        if category not in categories:
+            categories[category] = []
+        categories[category].append(appliance)
+    
+    # Interface de sélection des appareils
+    selected_appliances = {}
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🛋️ Éclairage et Électronique")
+        
+        for category in ['Éclairage', 'Électronique']:
+            if category in categories:
+                st.markdown(f"**{category}**")
+                for appliance in categories[category]:
+                    quantity = st.number_input(
+                        f"{appliance}",
+                        min_value=0,
+                        max_value=10,
+                        value=0,
+                        key=f"app_{appliance}"
+                    )
+                    selected_appliances[appliance] = quantity
+                st.markdown("---")
+    
+    with col2:
+        st.subheader("🍳 Électroménager et Cuisine")
+        
+        for category in ['Électroménager', 'Cuisine', 'Énergie', 'Divers']:
+            if category in categories:
+                st.markdown(f"**{category}**")
+                for appliance in categories[category]:
+                    quantity = st.number_input(
+                        f"{appliance}",
+                        min_value=0,
+                        max_value=10,
+                        value=0,
+                        key=f"app_{appliance}"
+                    )
+                    selected_appliances[appliance] = quantity
+                st.markdown("---")
+    
+    # Informations supplémentaires
+    st.subheader("📊 Informations du Ménage")
+    col_info1, col_info2, col_info3 = st.columns(3)
+    
+    with col_info1:
+        nombre_personnes = st.number_input(
+            "Nombre de personnes dans le foyer",
+            min_value=1,
+            max_value=20,
+            value=4,
+            step=1,
+            key="app_nb_pers"
+        )
+    
+    with col_info2:
+        jours_observed = st.number_input(
+            "Nombre de jours d'observation",
+            min_value=1,
+            max_value=365,
+            value=30,
+            step=1,
+            key="app_jours"
+        )
+    
+    with col_info3:
+        zone = st.selectbox(
+            "Zone géographique",
+            ["Zone Inconnue", "Môle Saint-Nicolas", "Jean Rabel", "Bombardopolis", "Mare-Rouge"],
+            key="app_zone"
+        )
+    
+    # Bouton de calcul et prédiction
+    if st.button("⚡ Calculer et Prédire la Consommation", type="primary"):
+        with st.spinner("Calcul de la consommation..."):
+            # Calcul de la consommation
+            consumption_data = appliance_calc.calculate_consumption(selected_appliances)
+            
+            # Affichage des résultats du calcul
+            display_consumption_calculation(consumption_data, selected_appliances, appliance_calc)
+            
+            # Préparation pour la prédiction
+            input_data = {
+                'avg_amperage_per_day': consumption_data['estimated_amperage'],
+                'avg_depense_per_day': consumption_data['estimated_cost'],
+                'nombre_personnes': nombre_personnes,
+                'jours_observed': jours_observed,
+                'ratio_depense_amperage': consumption_data['estimated_cost'] / consumption_data['estimated_amperage'] if consumption_data['estimated_amperage'] > 0 else 0
+            }
+            
+            # Prédiction
+            result = predictor.predict(input_data)
+            
+            if result:
+                display_prediction_result(result, input_data)
+
+def show_single_prediction(predictor):
+    """Interface pour la prédiction simple"""
+    
+    st.header("🔮 Prédiction Simple de Consommation")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Paramètres du Ménage")
+        
+        avg_amperage = st.number_input(
+            "Ampérage moyen quotidien (A)",
+            min_value=0.0,
+            max_value=100.0,
+            value=1.5,
+            step=0.1
+        )
+        
+        avg_depense = st.number_input(
+            "Dépenses moyennes quotidiennes ($)",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.5,
+            step=0.01
+        )
+        
+        nombre_personnes = st.number_input(
+            "Nombre de personnes dans le foyer",
+            min_value=1,
+            max_value=20,
+            value=4,
+            step=1
+        )
+        
+        jours_observed = st.number_input(
+            "Nombre de jours d'observation",
+            min_value=1,
+            max_value=365,
+            value=30,
+            step=1
+        )
+    
+    with col2:
+        st.subheader("Informations Complémentaires")
+        
+        zone = st.selectbox(
+            "Zone géographique",
+            ["Zone Inconnue", "Môle Saint-Nicolas", "Jean Rabel", "Bombardopolis", "Mare-Rouge"]
+        )
+        
+        type_maison = st.selectbox(
+            "Type de maison",
+            ["Rezidansyel", "Apartment", "Kay modèn", "Kay tradisyonèl"]
+        )
+        
+        if avg_amperage > 0:
+            ratio = avg_depense / avg_amperage
+        else:
+            ratio = 0
+        
+        st.metric("Ratio Dépenses/Ampérage", f"{ratio:.4f}")
+        
+        if st.button("🔍 Prédire le Niveau de Consommation", type="primary"):
+            input_data = {
+                'avg_amperage_per_day': avg_amperage,
+                'avg_depense_per_day': avg_depense,
+                'nombre_personnes': nombre_personnes,
+                'jours_observed': jours_observed,
+                'ratio_depense_amperage': ratio
+            }
+            
+            result = predictor.predict(input_data)
+            
+            if result:
+                display_prediction_result(result, input_data)
 
 def show_batch_prediction(predictor):
     """Interface pour les prédictions par lot"""
     st.header("📊 Prédiction par Lot")
-    st.info("Cette fonctionnalité permet de traiter plusieurs ménages à la fois via un fichier CSV.")
-    # Implémentation similaire à précédemment...
+    st.info("Fonctionnalité en développement...")
+    st.warning("Cette fonctionnalité sera disponible prochainement!")
 
 def show_analytics():
     """Page d'analytics et de visualisations"""
     st.header("📈 Analytics et Insights")
-    # Implémentation similaire à précédemment...
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Performance du Modèle", "99.8%")
+    
+    with col2:
+        st.metric("Précision", "99.8%")
+    
+    with col3:
+        st.metric("Taux d'Erreur", "0.2%")
+    
+    with col4:
+        st.metric("Données d'Entraînement", "2,716 foyers")
 
 def show_about():
     """Page À propos"""
     st.header("ℹ️ À Propos")
-    # Implémentation similaire à précédemment...
+    
+    st.markdown("""
+    ## Classification des Ménages Haïtiens par Niveau de Consommation Énergétique
+    
+    ### 📋 Description du Projet
+    Cette application utilise un modèle de machine learning avancé pour classifier automatiquement 
+    les ménages haïtiens selon leur niveau de consommation énergétique.
+    
+    ### 🎯 Objectifs
+    - **Segmenter** les ménages en trois catégories: petit, moyen, grand consommateur
+    - **Optimiser** la planification énergétique nationale
+    - **Personnaliser** les stratégies tarifaires et d'efficacité énergétique
+    
+    ### 🔧 Technologies Utilisées
+    - **Machine Learning**: XGBoost, Random Forest, Logistic Regression
+    - **Traitement des Données**: Pandas, NumPy, Scikit-learn
+    - **Visualisation**: Plotly, Matplotlib
+    - **Interface**: Streamlit
+    - **Données**: Compteurs intelligents Sigora (Janvier 2023 - Septembre 2025)
+    
+    ### 👥 Équipe
+    - Saint Germain Emode
+    - Darlens Damisca
+    """)
+
+def main():
+    # En-tête de l'application
+    st.markdown('<h1 class="main-header">⚡ Classification des Ménages Haïtiens</h1>', 
+                unsafe_allow_html=True)
+    
+    st.markdown("""
+    Cette application utilise un modèle de machine learning pour classifier les ménages haïtiens 
+    selon leur niveau de consommation énergétique (faible, moyen, élevé).
+    """)
+    
+    # Initialisation des classes
+    predictor = ConsumptionPredictor()
+    appliance_calc = ApplianceCalculator()
+    
+    # Sidebar pour la navigation
+    st.sidebar.title("Navigation")
+    app_mode = st.sidebar.selectbox(
+        "Choisir le mode",
+        [
+            "🔮 Prédiction Simple", 
+            "🏠 Prédiction par Appareils", 
+            "📊 Batch Prediction", 
+            "📈 Analytics", 
+            "ℹ️ A propos"
+        ]
+    )
+    
+    # Chargement des artefacts (à adapter selon votre chemin)
+    with st.sidebar.expander("Configuration du Modèle"):
+        st.info("""
+        Le modèle chargé est XGBoost optimisé avec:
+        - F1-Score: 99.8%
+        - Balanced Accuracy: 99.8%
+        """)
+    
+    # Chemin vers vos artefacts (à modifier selon votre structure)
+    model_path = "Model/best_model_20251025_2039.joblib"
+    scaler_path = "Model/scaler.joblib"
+    encoder_path = "Model/label_encoder.joblib"
+    
+    # Charger les artefacts
+    if not predictor.load_artifacts(model_path, scaler_path, encoder_path):
+        st.error("Impossible de charger le modèle. Vérifiez les chemins des fichiers.")
+        return
+    
+    if app_mode == "🔮 Prédiction Simple":
+        show_single_prediction(predictor)
+    elif app_mode == "🏠 Prédiction par Appareils":
+        show_appliance_prediction(predictor, appliance_calc)
+    elif app_mode == "📊 Batch Prediction":
+        show_batch_prediction(predictor)
+    elif app_mode == "📈 Analytics":
+        show_analytics()
+    else:
+        show_about()
 
 if __name__ == "__main__":
     main()
