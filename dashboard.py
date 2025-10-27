@@ -437,9 +437,7 @@ def display_prediction_result(result, input_data):
     recommendations = {
         'petit': [
             "✅ **Excellent!** Votre consommation est efficace",
-            "💡 Continuez vos bonnes habitudes de consommation",
-            "📊 Surveillance standard mensuelle suffisante",
-            "🌱 Envisagez l'énergie solaire pour maintenir cette efficacité"
+            "💡 Continuez vos bonnes habitudes de consommation"   
         ],
         'moyen': [
             "⚠️ **Consommation moyenne** - Potentiel d'optimisation",
