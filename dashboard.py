@@ -935,8 +935,8 @@ def show_about():
     - **Données**: Compteurs intelligents Sigora (Janvier 2023 - Septembre 2025)
     
     ### 👥 Équipe
-    - Saint Germain Emode
     - Darlens Damisca
+    - Saint Germain Emode
     """)
 
 def main():
