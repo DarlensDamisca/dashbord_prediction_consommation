@@ -671,16 +671,16 @@ def show_batch_prediction(predictor):
     # Template de fichier CSV
     st.subheader("📁 Template de Fichier CSV")
     
-    # Créer un template exemple
+    #  template exemple
     template_data = {
-        'numero_compteur': ['#001', '#002', '#003'],
-        'nom_complet': ['Jean Dupont', 'Marie Laurent', 'Pierre Martin'],
-        'avg_amperage_per_day': [0.5, 2.0, 5.0],
-        'avg_depense_per_day': [0.1, 0.5, 1.2],
-        'nombre_personnes': [3, 4, 6],
-        'jours_observed': [30, 30, 30],
-        'zone': ['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves']
-    }
+    'numero_compteur': ['#001', '#002', '#003', '#004', '#005', '#006', '#007', '#008', '#009', '#010', '#011', '#012', '#013', '#014', '#015', '#016', '#017', '#018', '#019', '#020', '#021', '#022', '#023'],
+    'nom_complet': ['Jean Dupont', 'Marie Laurent', 'Pierre Martin', 'Sophie Alexandre', 'Marc Antoine', 'Nadia Joseph', 'Robert Desir', 'Isabelle Moreau', 'Daniel Thomas', 'Caroline Baptiste', 'Patrick Noel', 'Vanessa Pierre', 'Samuel Jean', 'Christelle Laurent', 'Michel Olivier', 'Nicole St-Pierre', 'Emmanuel Toussaint', 'Karen Benjamin', 'Wilson Charles', 'Sandra Fleury', 'Georges Laguerre', 'Mireille Dorval', 'Fritznel Mentor'],
+    'avg_amperage_per_day': [0.5, 2.0, 5.0, 1.2, 3.5, 0.8, 4.2, 1.5, 2.8, 0.6, 6.0, 1.0, 3.0, 2.2, 4.5, 0.9, 5.5, 1.8, 2.5, 3.8, 1.2, 4.0, 0.7],
+    'avg_depense_per_day': [0.1, 0.5, 1.2, 0.3, 0.8, 0.2, 1.0, 0.4, 0.7, 0.15, 1.5, 0.25, 0.75, 0.55, 1.1, 0.22, 1.3, 0.45, 0.62, 0.95, 0.3, 1.0, 0.18],
+    'nombre_personnes': [3, 4, 6, 2, 5, 3, 7, 4, 5, 2, 8, 3, 4, 5, 6, 3, 7, 4, 5, 4, 3, 6, 2],
+    'jours_observed': [30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+    'zone': ['Port-au-Prince', 'Cap-Haïtien', 'Gonaïves', 'Port-au-Prince', 'Jacmel', 'Les Cayes', 'Cap-Haïtien', 'Port-au-Prince', 'Gonaïves', 'Jérémie', 'Port-au-Prince', 'Cap-Haïtien', 'Les Cayes', 'Jacmel', 'Port-au-Prince', 'Gonaïves', 'Cap-Haïtien', 'Port-au-Prince', 'Les Cayes', 'Jacmel', 'Jérémie', 'Port-au-Prince', 'Gonaïves']
+}
     
     template_df = pd.DataFrame(template_data)
     
