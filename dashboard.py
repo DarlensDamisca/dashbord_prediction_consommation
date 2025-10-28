@@ -436,7 +436,6 @@ def display_prediction_result(result, input_data):
     
     recommendations = {
         'petit': [
-            "✅ **Excellent!** Votre consommation est efficace",
             "💡 Continuez vos bonnes habitudes de consommation"   
         ],
         'moyen': [
